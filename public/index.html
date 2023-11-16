@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="./jquery-3.6.3.min.js"></script>
+<script>
+$(document).ready(function(){  
+
+      /*const ws = new WebSocket("ws://localhost:3000");
+
+      ws.onmessage = function (event) {
+
+        $(".instruments, .inst2").empty();
+        
+
+        let data = JSON.parse(event.data);
+        data.forEach(d => {
+            let cepe = d.instrument.substring(d.instrument.length - 2)
+            if(cepe=='CE') {
+              let html = "<tr class='instrument'><td>" + d.instrument + "</td><td>" + d.price + "</td><tr>"
+                if(d.inst == 1) {
+                  $("#ce").append(html)
+                } else {
+                  $("#ce2").append(html)
+                }
+              
+             } else {
+               let html = "<tr class='instrument'><td>" + d.instrument + "</td><td>" + d.price + "</td><tr>"
+                if(d.inst == 1) {
+                  $("#pe").append(html)
+                } else {
+                  $("#pe2").append(html)
+                }
+                
+            }
+        
+        })
+       
+       
+         
+      };*/
+
+      let url = window.location.href.substring(0, window.location.href.lastIndexOf(":"))
+      
+
+      $(".instButton").click(function() {
+       
+        $(".instButton").removeClass("selected");
+        $(this).addClass("selected");
+        
+      });
+
+      $(".cepe").click(function() {
+        // Remove the "selected" class from all buttons
+        $(".cepe").removeClass("selected");
+
+        // Add the "selected" class to the clicked button
+        $(this).addClass("selected");
+        let instrument = $(".instButton.selected").val();
+        let cepe = $(".cepe.selected").val();
+
+        $.get(`${url}:3000/strikePrices?instrument=`+instrument+"&cepe="+cepe, function(response){
+          $("#strikes").empty();
+         
+          for(let i =0; i<response.length; i++) {
+            
+            $("#strikes").append(`<button type='button'  class='strikes' value="${response[i]}" style="margin-bottom:5px">${response[i]}</button>`)
+          }
+        })
+       
+      });
+
+      $("#strikes").on("click", ".strikes", function() {
+        $("#strikes .strikes").removeClass("selected");
+        $(this).addClass("selected");
+      })
+
+
+      $(".instruments, .inst2").on("dblclick", '.instrument td:first-child', function() {
+            $("#instrument").val($(this).text())
+       });
+
+  
+      /*$.get("http://localhost:3000/existingPositions", function(response){
+        for(let i =0; i<response.length; i++) {
+          $("#instruments").append("<div>" + response[i]["tradingsymbol"] + "</div>");
+
+        }
+      })*/
+
+  
+      $("#button1").click(function(){
+      
+        
+        let instrument = $(".instButton.selected").val();
+        
+        let sellQtyPercent = $("#sellQtyPercent").val();
+       
+        let sellPrice = $("#sellPrice").val();
+        let strike = Number($(".strikes.selected").val());
+       
+        let cepe = $(".cepe.selected").val();
+        
+        $.post(`${url}:3000/sell`, {"instrument": instrument, "strike": strike, "cepe": cepe, "sellQtyPercent": sellQtyPercent, "sellPrice": sellPrice}, function(response){
+           
+            alert(response)
+        })
+    
+    });
+
+    $("#button11").click(function(){
+      
+        
+      let instrument = $(".instButton.selected").val();
+      
+      let sellQtyPercent = $("#sellQtyPercent").val();
+     
+      let sellPrice = $("#sellPrice").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      
+      $.post(`${url}:3000/sell`, {"instrument": instrument, "strike": strike, "cepe": cepe, "sellQtyPercent": sellQtyPercent, "sellPrice": sellPrice, "withoutHedgesFirst": true}, function(response){
+         
+          alert(response)
+      })
+  
+   });
+
+
+ 
+    $("#button66").click(function(){   
+
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+
+      $.post(`${url}:3000/buyHedges`, {"instrument": instrument, "strike": strike, "cepe": cepe}, function(response){
+              alert(response)
+      })
+    })
+
+
+    $("#button3").click(function(){   
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/exitPositions`, {"instrument": instrument,  "strike": strike, "cepe": cepe, "exitQtyPercent": $("#exitQtyPercent").val(), "exitPrice": $("#exitPrice").val()}, function(response){
+              alert(response)
+      })
+    })
+
+    $("#button2").click(function(){   
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/modifySellPrice`, {"instrument": instrument,  "strike": strike, "cepe": cepe, price: $("#modifyPrice").val()}, function(response){
+              alert(response)
+      })
+    })
+
+    $("#button4").click(function(){   
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/modifyExitPrice`, {"instrument": instrument,  "strike": strike, "cepe": cepe, price: $("#modifyExitPrice").val()}, function(response){
+              alert(response)
+      })
+    })
+
+    $("#button5").click(function(){   
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/addSL`, {triggerPrice: $("#triggerPrice").val(), "instrument": instrument, "strike": strike, "cepe": cepe}, function(response){
+              alert(response)
+      })
+    })
+
+    $("#button6").click(function(){
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/modifySL`, {"instrument": instrument,  "strike": strike, "cepe": cepe, triggerPrice: $("#modifyTiggerPrice").val()}, function(response){
+              alert(response)
+      })
+    })
+
+    $("#button7").click(function(){   
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/exitAtMarket`, {"instrument": instrument,  "strike": strike, "cepe": cepe}, function(response){
+              alert(response)
+      })
+    })
+
+
+    $("#button10").click(function(){   
+      let instrument = $(".instButton.selected").val();
+      let strike = Number($(".strikes.selected").val());
+      let cepe = $(".cepe.selected").val();
+      $.post(`${url}:3000/sellHedges`, {"instrument": instrument,  "strike": strike, "cepe": cepe}, function(response){
+              alert(response)
+      })
+    })
+
+      $("#button100").click(function(){   
+      $.post(`${url}:3000/updateStoploss`, {stoploss: $("#stoploss").val()}, function(response){
+              alert(response)
+      })
+    })
+
+ /* var intervalId = window.setInterval(function(){
+    $.get("http://localhost:3000/getTickers", {}, function(response){
+           let ce="", pe="";
+            response.forEach(res => {
+                if(res.strike.includes("CE"))
+                ce = ce + "<tr class='row'><td class='column'>" + res.strike + " </td><td>  " + res.premium + "</td>" ;
+
+                if(res.strike.includes("PE"))
+                pe = pe + "<tr class='row'><td class='column'>" + res.strike + " </td><td>  " + res.premium + "</td>" ;
+            })
+            $("#ce").html(ce)
+            $("#pe").html(pe)
+           
+     })
+    }, 5000);*/
+
+  
+
+})
+</script>
+</head>
+<style type="text/css">
+body {
+  margin-left:25px;
+}  
+td{
+    border:1px solid #ddd;
+    padding:10px;
+    padding-right:15px;
+}
+
+button {
+  font-size: 15px;
+  padding: 5px 8px;
+  margin-right:10px;
+  cursor: pointer;
+
+}
+
+table td {
+  font-size:14px;
+}
+.selected {
+  border: 2px solid grey;
+  border-radius:5px;
+  font-size:15px;
+}
+input {
+  width:80px
+}
+.segment {
+  border:1px solid #aaa;
+  padding: 5px;
+  margin-bottom:5px
+}
+</style>
+
+
+<body>
+
+<div id="instruments">
+
+</div>
+<br>
+<button type="button"  class="instButton" value="NIFTY">Nifty</button>
+<button type="button" class="instButton" value="BANKNIFTY">BankNifty</button>
+<button type="button"  class="instButton" value="FINNIFTY">Fin Nifty</button>
+<br/>
+<button type="button"  class="instButton" value="SENSEX" style="margin-top:8px">Sensex</button>
+<button type="button"  class="instButton" value="BANKEX">Bankex</button>
+<button type="button" class="instButton" value="MIDCPNIFTY">Midcap</button>
+<br><br>
+<button type="button"  class="cepe" value="CE">CE</button>
+<button type="button" class="cepe" value="PE">PE</button>
+<br/><br/>
+<div id="strikes"></div>
+<br>
+<div class ="segment">
+<label> Sell Qty </label> <input type="text" id="sellQtyPercent" inputmode="numeric"> 
+<label> Sell Price </label> <input type="text" id="sellPrice" inputmode="numeric"> 
+<button type="button" id="button1" style="margin-top:15px">Submit</button>
+<button type="button" id="button11">Sell Without Hedges</button>
+<br/>
+<label>Modify Price</label><input type="text" id="modifyPrice" inputmode="numeric"> 
+<button type="button" id="button2"  style="margin-top:15px">Submit</button>
+<br/><br/>
+StopLoss Level
+<input type="text" id="stoploss" name="stoploss" autocomplete="on" inputmode="numeric"> 
+<button type="button" id="button100">Submit</button>
+<br/><br/>
+</div>
+<div class="segment">
+<label> Exit Qty </label> <input type="text" id="exitQtyPercent" inputmode="numeric"> 
+<label> Exit Price </label> <input type="text" id="exitPrice" inputmode="numeric"> 
+<button type="button" id="button3"  style="margin-top:15px">Submit</button>
+<br><br>
+<label> Modify Exit Price </label> <input type="text" id="modifyExitPrice" inputmode="numeric"> 
+<button type="button" id="button4" >Submit</button>
+</div>
+<br>
+
+<div class="segment">
+<label> Add SL Trigger Price </label> <input type="text" id="triggerPrice" inputmode="numeric"> 
+<button type="button" id="button5"  >Submit</button>
+<br>
+<label> Modify SL Trigger </label> <input type="text" id="modifyTiggerPrice" inputmode="numeric"> 
+<button type="button" id="button6" style="margin-top:15px">Submit</button>
+</div>
+
+<button type="button" id="button66" class="button">Buy Equal Hedges</button>
+
+<button type="button" id="button7" class="button">Exit Sell Positions</button>
+<button type="button" id="button8" class="button" style="margin-top:15px">Cancel SL Triggers</button>
+<button type="button" id="button9" class="button">Cancel Limit Orders</button>
+<button type="button" id="button10" class="button" style="margin-top:15px">Exit Hedges</button>
+
+</body>
+</html>

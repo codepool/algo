@@ -1,0 +1,57 @@
+{
+  "name": "kiteconnect",
+  "version": "4.1.0",
+  "description": "The official JS client library for the Kite Connect trading APIs",
+  "main": "./lib/",
+  "scripts": {
+    "generate-docs": "node_modules/.bin/jsdoc --configure .jsdoc.json --verbose",
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zerodhatech/kiteconnectjs.git"
+  },
+  "keywords": [
+    "kiteconnect",
+    "kite",
+    "zerodha",
+    "rainmatter",
+    "trading",
+    "api",
+    "stock",
+    "market"
+  ],
+  "author": "Vivek R",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/zerodhatech/kiteconnectjs/issues"
+  },
+  "homepage": "https://github.com/zerodhatech/kiteconnectjs#readme",
+  "dependencies": {
+    "axios": "^0.21.2",
+    "body-parser": "^1.20.1",
+    "chai": "^4.3.6",
+    "cors": "^2.8.5",
+    "crypto-js": "^4.0.0",
+    "csvtojson": "^2.0.10",
+    "express": "^4.18.2",
+    "kiteconnect": "^4.1.0",
+    "mocha": "^10.0.0",
+    "moment": "^2.29.4",
+    "nock": "^13.2.4",
+    "node-schedule": "^2.1.1",
+    "papaparse": "^5.3.1",
+    "puppeteer": "^13.7.0",
+    "totp-generator": "^0.0.14",
+    "twilio": "^4.10.0",
+    "ws": "^6.2.2"
+  },
+  "devDependencies": {
+    "jsdoc": "^3.4.0",
+    "minami": "^1.1.1"
+  },
+  "engines": {
+    "node": ">=8.0.0"
+  },
+  "engineStrict": true
+}
