@@ -63,7 +63,7 @@ const map1 = {
 
 const ltpMap = {
 	"BANKNIFTY": "NSE:NIFTY BANK",
-	"NIFTY": "NSE:NIFTY",
+	"NIFTY": "NSE:NIFTY 50",
 	"FINNIFTY": "NSE:NIFTY FIN SERVICE" ,
 	"MIDCPNIFTY": "NSE:NIFTY MID SELECT",
 	"SENSEX": "BSE:SENSEX",
@@ -323,6 +323,8 @@ app.get('/strikePrices', urlencodedParser, async (req, res) => {
 	
 	
 	let ltp = await kc.getLTP(ltpMap[req.query.instrument]);
+	console.log(ltp)
+	console.log(ltpMap[req.query.instrument])
 	if(!ltp[ltpMap[req.query.instrument]]) return "Could not get Prices"
 	let spotPrice = ltp[ltpMap[req.query.instrument]]["last_price"];
 	let prices = [];
