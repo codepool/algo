@@ -41,7 +41,8 @@ $(document).ready(function(){
          
       };*/
 
-      let url = window.location.href.substring(0, window.location.href.lastIndexOf(":"))
+      let url = window.location.href;
+      
       
 
       $(".instButton").click(function() {
@@ -60,7 +61,7 @@ $(document).ready(function(){
         let instrument = $(".instButton.selected").val();
         let cepe = $(".cepe.selected").val();
 
-        $.get(`${url}:3000/strikePrices?instrument=`+instrument+"&cepe="+cepe, function(response){
+        $.get(`${url}strikePrices?instrument=`+instrument+"&cepe="+cepe, function(response){
           $("#strikes").empty();
          
           for(let i =0; i<response.length; i++) {
@@ -102,7 +103,7 @@ $(document).ready(function(){
        
         let cepe = $(".cepe.selected").val();
         
-        $.post(`${url}:3000/sell`, {"instrument": instrument, "strike": strike, "cepe": cepe, "sellQtyPercent": sellQtyPercent, "sellPrice": sellPrice}, function(response){
+        $.post(`${url}sell`, {"instrument": instrument, "strike": strike, "cepe": cepe, "sellQtyPercent": sellQtyPercent, "sellPrice": sellPrice}, function(response){
            
             alert(response)
         })
@@ -120,7 +121,7 @@ $(document).ready(function(){
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
       
-      $.post(`${url}:3000/sell`, {"instrument": instrument, "strike": strike, "cepe": cepe, "sellQtyPercent": sellQtyPercent, "sellPrice": sellPrice, "withoutHedgesFirst": true}, function(response){
+      $.post(`${url}sell`, {"instrument": instrument, "strike": strike, "cepe": cepe, "sellQtyPercent": sellQtyPercent, "sellPrice": sellPrice, "withoutHedgesFirst": true}, function(response){
          
           alert(response)
       })
@@ -135,7 +136,7 @@ $(document).ready(function(){
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
 
-      $.post(`${url}:3000/buyHedges`, {"instrument": instrument, "strike": strike, "cepe": cepe}, function(response){
+      $.post(`${url}buyHedges`, {"instrument": instrument, "strike": strike, "cepe": cepe}, function(response){
               alert(response)
       })
     })
@@ -145,7 +146,7 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/exitPositions`, {"instrument": instrument,  "strike": strike, "cepe": cepe, "exitQtyPercent": $("#exitQtyPercent").val(), "exitPrice": $("#exitPrice").val()}, function(response){
+      $.post(`${url}exitPositions`, {"instrument": instrument,  "strike": strike, "cepe": cepe, "exitQtyPercent": $("#exitQtyPercent").val(), "exitPrice": $("#exitPrice").val()}, function(response){
               alert(response)
       })
     })
@@ -154,7 +155,7 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/modifySellPrice`, {"instrument": instrument,  "strike": strike, "cepe": cepe, price: $("#modifyPrice").val()}, function(response){
+      $.post(`${url}modifySellPrice`, {"instrument": instrument,  "strike": strike, "cepe": cepe, price: $("#modifyPrice").val()}, function(response){
               alert(response)
       })
     })
@@ -163,7 +164,7 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/modifyExitPrice`, {"instrument": instrument,  "strike": strike, "cepe": cepe, price: $("#modifyExitPrice").val()}, function(response){
+      $.post(`${url}modifyExitPrice`, {"instrument": instrument,  "strike": strike, "cepe": cepe, price: $("#modifyExitPrice").val()}, function(response){
               alert(response)
       })
     })
@@ -172,7 +173,7 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/addSL`, {triggerPrice: $("#triggerPrice").val(), "instrument": instrument, "strike": strike, "cepe": cepe}, function(response){
+      $.post(`${url}addSL`, {triggerPrice: $("#triggerPrice").val(), "instrument": instrument, "strike": strike, "cepe": cepe}, function(response){
               alert(response)
       })
     })
@@ -181,7 +182,7 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/modifySL`, {"instrument": instrument,  "strike": strike, "cepe": cepe, triggerPrice: $("#modifyTiggerPrice").val()}, function(response){
+      $.post(`${url}modifySL`, {"instrument": instrument,  "strike": strike, "cepe": cepe, triggerPrice: $("#modifyTiggerPrice").val()}, function(response){
               alert(response)
       })
     })
@@ -190,7 +191,7 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/exitAtMarket`, {"instrument": instrument,  "strike": strike, "cepe": cepe}, function(response){
+      $.post(`${url}exitAtMarket`, {"instrument": instrument,  "strike": strike, "cepe": cepe}, function(response){
               alert(response)
       })
     })
@@ -200,13 +201,13 @@ $(document).ready(function(){
       let instrument = $(".instButton.selected").val();
       let strike = Number($(".strikes.selected").val());
       let cepe = $(".cepe.selected").val();
-      $.post(`${url}:3000/sellHedges`, {"instrument": instrument,  "strike": strike, "cepe": cepe}, function(response){
+      $.post(`${url}sellHedges`, {"instrument": instrument,  "strike": strike, "cepe": cepe}, function(response){
               alert(response)
       })
     })
 
       $("#button100").click(function(){   
-      $.post(`${url}:3000/updateStoploss`, {stoploss: $("#stoploss").val()}, function(response){
+      $.post(`${url}updateStoploss`, {stoploss: $("#stoploss").val()}, function(response){
               alert(response)
       })
     })
