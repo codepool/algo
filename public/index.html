@@ -196,6 +196,13 @@ $(document).ready(function(){
       })
     })
 
+     $("#button77").click(function(){   
+     
+      $.post(`${url}exitAllAtMarket`, {}, function(response){
+              alert(response)
+      })
+    })
+
 
     $("#button10").click(function(){   
       let instrument = $(".instButton.selected").val();
@@ -324,6 +331,7 @@ StopLoss Level
 <button type="button" id="button66" class="button">Buy Equal Hedges</button>
 
 <button type="button" id="button7" class="button">Exit Sell Positions</button>
+<button type="button" id="button77" class="button">Exit All Sell Pos</button>
 <button type="button" id="button8" class="button" style="margin-top:15px">Cancel SL Triggers</button>
 <button type="button" id="button9" class="button">Cancel Limit Orders</button>
 <button type="button" id="button10" class="button" style="margin-top:15px">Exit Hedges</button>

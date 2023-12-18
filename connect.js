@@ -13,6 +13,7 @@ const { format } = require("path");
 const WebSocket = require('ws');
 const e = require("express");
 const path = require('path');
+const { fn } = require("moment");
 
 const wss = new WebSocket.Server({ noServer: true });
 
@@ -32,14 +33,16 @@ let firstInst, secondInst;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-var api_key = "m3tm90xcurfqs6ed",
-	secret = "neitcljdwghnhw9orky6bhmx9mqc6rko",
-	request_token = "",
-	access_token = "";
-
+var api_key = "m3tm90xcurfqs6ed", secret = "neitcljdwghnhw9orky6bhmx9mqc6rko";
+let api_key2 = "h57lwjsqf83r2v4k", secret2 = "cm6ciqf9zry69lfyxznwgp8smqnfdrxq";
 
 var options = {
 	"api_key": api_key,
+	"debug": false
+};
+
+var options2 = {
+	"api_key": api_key2,
 	"debug": false
 };
 
@@ -71,15 +74,22 @@ const ltpMap = {
 }
 
 let  kc = new KiteConnect(options);
+let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
+
+let maxPlatformLoss = 700000;
+let curPlatformLoss = maxPlatformLoss;
+let trailSL = 50000; // for every 50k profit trail the platfrom loss limit
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
 let stoplossLevels = {};
 
+let currentTicks;
 
 function initializeTicker() {
+	let at = fs.readFileSync("token");
 	ticker = new KiteTicker({
 		api_key: "m3tm90xcurfqs6ed",
-		access_token: access_token
+		access_token: at
 	});	
 	ticker.connect();
 	ticker.on('ticks', onTicks);
@@ -87,7 +97,7 @@ function initializeTicker() {
 	ticker.on('disconnect', onDisconnect);
 	ticker.on('error', onError);
 	ticker.on('close', onClose);
-	//ticker.on('order_update', onTrade);
+	ticker.on('order_update', onTrade);
 }
 
 wss.on('connection', (ws) => {
@@ -122,12 +132,15 @@ function sendEventToClients(eventData) {
 
 app.server = app.listen(port, '0.0.0.0',async () => {
 	await getToken();
+	console.log("Now Getting Token 2")
+	await getToken(true);
 	
 	console.log("Getting All Instruments in NFO")
 	instList = await kc.getInstruments("NFO");
 	instListBFO = await kc.getInstruments("BFO");
-	todayExpiryList = getTodayExpiryInst();
+	//todayExpiryList = getTodayExpiryInst();
 	initializeTicker();
+	initGlobal();
 	console.log(`app listening on port ${port}`)
 	
 	
@@ -141,13 +154,23 @@ app.server.on('upgrade', (request, socket, head) => {
     });
 });
 
-async function getToken() {
+async function getToken(secondToken = false) {
 	
-	access_token = fs.readFileSync("token");
-	kc.setAccessToken(access_token);
+    let fileName = "token";
+	let finalKc = kc;
+	let finalSecret = secret;
+	let finalApiKey = api_key;
+	if(secondToken) {
+		fileName = "token2";
+		finalKc = kc2;
+		finalSecret = secret2;
+		finalApiKey = api_key2
+	}
+	let at = fs.readFileSync(fileName);
+	finalKc.setAccessToken(at);
     try {
 		
-		await kc.getProfile()
+		await finalKc.getProfile()
 
 	} catch {
 		try {
@@ -156,7 +179,7 @@ async function getToken() {
     console.log("getting new token")
 	const browser = await puppeteer.launch();
 	const page = await browser.newPage();
-	await page.goto('https://kite.zerodha.com/connect/login?v=3&api_key=m3tm90xcurfqs6ed', {waitUntil: "domcontentloaded"});
+	await page.goto(`https://kite.zerodha.com/connect/login?v=3&api_key=${finalApiKey}`, {waitUntil: "domcontentloaded"});
 	await page.waitForTimeout(1000);
 	await page.type('#userid', 'YC2151');
 	await page.type('#password', 'aerial@258G');
@@ -165,15 +188,15 @@ async function getToken() {
 	await page.type('input', token);
 	 await page.click('button[type="submit"]');
 	 await page.waitForNavigation();
-	request_token = new URL(page.url()).searchParams.get('request_token');
+	let request_token = new URL(page.url()).searchParams.get('request_token');
 	await browser.close();
 	console.log("Got request token !!")
-	await kc.generateSession(request_token, secret)
+	await finalKc.generateSession(request_token, finalSecret)
 	.then(function(response) {
 		console.log("Got access token !!");
-		access_token = response.access_token;
-		kc.setAccessToken(access_token);
-		fs.writeFileSync("token", access_token) 
+		let at = response.access_token;
+		finalKc.setAccessToken(at);
+		fs.writeFileSync(fileName, at) 
 		
 	})
 
@@ -190,30 +213,596 @@ function getContext() {
 }
 
 let i=1;
-
+let kkk = 0;
 let prevSubscribeItems = [];
 let count = 0;
+
 async function onTicks(ticks) {
 	
-	console.log(stoplossLevels)
+	currentTicks = ticks;
+	let pos= await kc.getPositions();
+	let sellPos = []
+	pos["net"].forEach(p => { 
+
+		if(p.quantity != 0) {
+			sellPos.push(p.instrument_token)
+		}
+
+	})
+	if(sellPos.length == 0) {
+		sellPos = [map["BANKNIFTY"]]
+	}
+	
+	ticker.unsubscribe(subscribeItems)
+	ticker.subscribe(sellPos);
+	subscribeItems = sellPos;
+	
+	if(ticks[0]["instrument_token"] == map["BANKNIFTY"]) return;
+	
+	
     //console.log("Received Tick Length " + ticks.length)
 	//console.log(ticks)
 	//check if the underlying hasnt crossed stoploss, if yes then exit at market price. Auto determine pe/ce & instrument
 
-	ticks.forEach(async t => {
+	/*ticks.forEach(async t => {
 		
 		if(!stoplossLevels[map1[t.instrument_token]] || !stoplossLevels[map1[t.instrument_token]]["stoploss"]) return
 		
 		if((stoplossLevels[map1[t.instrument_token]]["cepe"] == "CE" && t.last_price > stoplossLevels[map1[t.instrument_token]]["stoploss"])
 		|| ( stoplossLevels[map1[t.instrument_token]]["cepe"] == "PE" && t.last_price < stoplossLevels[map1[t.instrument_token]]["stoploss"])
 		) {
-			console.log("stop loss brteached")
+			console.log("stop loss breached")
+			
 			//await exitAtMarket(stoplossLevels[map1[t.instrument_token]]["tradingsymbol"]);
 		}
-	})
+	})*/
+	await pnlExitLogic(ticks)
 
 	
 	
+}
+
+
+
+async function fn1(finalKc) {
+	try {
+		let k = await finalKc.getQuote(["NSE:NIFTY 50"]);
+		console.log(k)
+	} catch(e) {
+		console.log(e);
+		
+		
+	}
+	
+}
+
+let slOrderIds = []; //fill this global variable
+let autoModifyInProcess = false;
+let totalSLQty = {}; //fill this global variable
+
+async function initGlobal()  {
+	let orders= await kc.getOrders();
+	
+	orders.forEach(p => { 
+		if(p.order_type == 'SL' && p.status == 'TRIGGER PENDING') {
+			slOrderIds.push(p.order_id);
+			if(!totalSLQty[p.tradingsymbol]) {
+				totalSLQty[p.tradingsymbol] = p.quantity
+			} else {
+				totalSLQty[p.tradingsymbol] = totalSLQty[p.tradingsymbol] + p.quantity
+			}
+		}
+
+	})
+}
+async function onTrade(order) {
+	try {
+		
+		/*
+		1) Create SLs automatically on creating sell positions. Cancel SLs automatically on exiting positions
+		2) Buy Hedges automatically. Wont sell them automatically though
+		3) Exit Sell Positions when cancelling any SL trigger
+
+		*/
+		console.log(order)
+		let slModified = false
+	
+		if(order.order_type == 'SL' && order.status == 'TRIGGER PENDING') {
+			if(!slOrderIds.includes(order.order_id)) {
+				slOrderIds.push(order.order_id); //store all sl order ids
+			} else {
+				slModified = true;
+			}
+			
+			
+		}
+		if(order.order_type == 'SL' && order.status == 'TRIGGER PENDING' && !autoModifyInProcess && slModified) { 
+			//if SL is modified, modify all other stop losse orders. This should happen only when modifying stop loss manually
+			let orders = await kc.getOrders();
+			orders.forEach(async o =>  {
+				if(o.order_type !='SL' || order.tradingsymbol != o.tradingsymbol || order.order_id == o.order_id) return;
+				if(o.order_type =='SL' && o.status == 'TRIGGER PENDING') {
+					autoModifyInProcess = true
+					if(o.trigger_price != order.trigger_price || o.price != order.price) {
+						await kc.modifyOrder("regular", o.order_id, {"trigger_price": order.trigger_price,"price": order.price})
+					}
+				}
+			});
+
+			setTimeout(function() {
+				autoModifyInProcess = false; //after you have auto modified all SL orders reset tbe variable
+			}, 1000); 
+		}
+
+
+		
+		if(!((order.status == 'CANCELLED' && order.pending_quantity > 0) || order.status == 'COMPLETE') || order.order_type == 'SL') return; //we do nothing for partially filled orders / SL  Orders
+		
+		if(order.transaction_type == 'SELL') {
+			//check if sell order is not from the hedge position
+			let hedgeOrder = true;
+			let pos= await kc.getPositions();
+			pos["net"].forEach(p => { 
+		
+				if(p.quantity < 0 && p.tradingsymbol == order.tradingsymbol) {
+						hedgeOrder = false;
+				}
+
+			})
+			if(hedgeOrder) {
+				console.log("Found Hedge Buy Order. Doing Nothing")
+				return;
+			}
+			let orderQty = order.quantity
+			if(order.status == 'CANCELLED' && order.pending_quantity > 0) {
+				orderQty = order.filled_quantity
+			}
+
+			buyAutoHedges(order.tradingsymbol, orderQty);
+
+			let stoploss = getSLValue(order.tradingsymbol);
+			let triggerPrice = Math.round(order.average_price) + stoploss
+			
+			if(!totalSLQty[order.tradingsymbol]) {
+				totalSLQty[order.tradingsymbol] = 0;
+			}
+			totalSLQty[order.tradingsymbol] = totalSLQty[order.tradingsymbol] + orderQty;
+			await stoplossOrderPlace(triggerPrice, order.tradingsymbol, orderQty)
+			
+
+		} else if(order.transaction_type == 'BUY')  {
+
+			
+			if(slOrderIds.includes(order.order_id)) return; //do nothing if the buy order is the one which is placed due to SL triggered
+
+			//check if it's not from hedge position. If not from hedge then we need to remove SL orders as well
+			let hedgeOrder = true;
+			let pos= await kc.getPositions();
+			let totalSellPos = 0;
+			pos["net"].forEach(p => { 
+		
+				if(p.quantity <= 0 && p.tradingsymbol == order.tradingsymbol) {
+					hedgeOrder = false;
+				}
+				if(p.quantity < 0 && p.tradingsymbol == order.tradingsymbol) {
+					totalSellPos = p.quantity ;
+				}
+	
+			})
+			if(hedgeOrder) {
+				console.log("Found Hedge Buy Order. Doing Nothing")
+				return;
+			}
+
+			//if position is exited, cancel all stoploss trigger with the quanity exited . cancel in FIFO manner
+			/*let orders = await kc.getOrders();
+			//check if total SL triggers are greater than total sell positions then only we have to cancek SL triggers.
+			//this will prervent the trigger cancel when triger is fired and limit order is placed because trigger automatically cancels in that case
+
+			orders.forEach(o => {
+				if(order.tradingsymbol != o.tradingsymbol) return;
+				if(o.order_type =='SL' && o.status == 'TRIGGER PENDING') {
+					totalSLQty += o.quantity;
+				}
+			});*/
+			
+			if(totalSLQty[order.tradingsymbol] <=  totalSellPos * -1)  {
+				console.log("Trigger Quantity is less than Sell Qty")
+				return;
+			}
+
+			await cancelTrigger(order);
+			
+
+		}
+	} catch(e) {
+		console.log(e)
+	}
+
+}
+
+async function buyAutoHedges(sellTradingSymbol, quantity) {
+
+	console.log("Buying Auto hedges")
+
+	let pos= await kc.getPositions();
+	let cepe = sellTradingSymbol.substring(sellTradingSymbol.length - 2);
+	let hedgeQty = 0;
+	let sellQty = 0;
+	let hedgeTradingSymbol;
+	let lastPrice;
+
+	pos["net"].forEach(p => { 
+		let cepe1 = p.tradingsymbol.substring(p.tradingsymbol.length - 2)
+		if(p.quantity > 0 && cepe == cepe1 && p.tradingsymbol.substring(0,5) == sellTradingSymbol.substring(0,5)) {
+			hedgeQty = hedgeQty + p.quantity
+			hedgeTradingSymbol = p.tradingsymbol;
+			lastPrice = p.last_price;
+		}
+		if(p.tradingsymbol == sellTradingSymbol && p.quantity < 0) {
+			sellQty = p.quantity * -1
+		}  
+
+	})
+
+	if(hedgeQty >= sellQty) {
+		console.log("Hedges already present " + hedgeQty)
+		return;
+	}
+
+	if(hedgeTradingSymbol) {
+		autoHedgeBuyOrder(hedgeTradingSymbol, quantity, lastPrice);
+		return;
+	}
+	let inst = instList.filter(i => {
+			
+		if(i.tradingsymbol == sellTradingSymbol) {
+			return i;
+		}
+	})[0]
+	let finalInstList = instList;
+
+	if(!inst || !inst["instrument_token"]) {
+		inst = instListBFO.filter(i => {
+			
+			if(i.tradingsymbol == sellTradingSymbol) {
+				return i;
+			}
+		})[0]
+		finalInstList = instListBFO;
+	}
+	
+	if(!inst || !inst["instrument_token"]) {
+		console.log("Symbol not found in instrument list ");
+		return;
+	}
+
+	let sellStrike = getStrike(sellTradingSymbol)["strike"];
+	
+	let cepeFactor = 1;
+	if(cepe == 'PE') {
+		cepeFactor = -1;
+	}
+
+	//get at least +900, -900 further strikes to compare
+	let hedgeInst = [];
+	for (let k = 1; k <= 18; k++) {
+		let strike = sellStrike + cepeFactor * k * 50;
+		finalInstList.filter(i => {
+			if(!i.tradingsymbol) return;
+			let cepe1 = i.tradingsymbol.substring(i.tradingsymbol.length - 2);
+			if(cepe1 != cepe) return;
+			if(i.tradingsymbol.substring(0,5) == sellTradingSymbol.substring(0,5) && Number(i.strike) == strike && moment(inst.expiry).format("YYYY-MM-DD") == moment(i.expiry).format("YYYY-MM-DD")) {
+				let exchange = "NFO"
+				if(sellTradingSymbol.startsWith("SENSEX") || sellTradingSymbol.startsWith("BANKEX")) {
+					exchange = "BFO"
+				}
+				hedgeInst.push(exchange + ":" + i.tradingsymbol)
+			}
+		})
+	
+	}
+
+	let ltp = await kc.getLTP(hedgeInst);
+	let json = [];
+	for (const key in ltp) {
+		if (ltp.hasOwnProperty(key)) {
+			let tradingsymbol = key.substring(4);
+			let strike = getStrike(tradingsymbol)["strike"];
+			json.push({"strike":strike, "last_price": ltp[key].last_price, "tradingsymbol": tradingsymbol})
+	
+		}
+	}
+	
+	if(cepe == 'CE') {
+		json.sort((a, b) => a.strike - b.strike); //sort in ascending for CE strikes
+	} else {
+		json.sort((b, a) => a.strike - b.strike); //sort in descending for PE strikes
+	}
+	
+	
+	
+	for (let i = 0; i < json.length - 1; i++) {
+
+		if(Math.abs(json[i]["last_price"] - json[i + 1]["last_price"]) < getStrikePriceDiff(sellTradingSymbol)) {
+			hedgeTradingSymbol = json[i]["tradingsymbol"];
+			lastPrice =  json[i]["last_price"];
+			break;
+		}
+	}
+
+	if(!hedgeTradingSymbol) {
+		return;
+	}
+	autoHedgeBuyOrder(hedgeTradingSymbol, quantity, lastPrice)
+	
+	
+}
+
+async function autoHedgeBuyOrder(tradingsymbol, quantity, lastPrice) {
+
+	let payload = {
+		"exchange": "NFO",
+		"tradingsymbol": tradingsymbol,
+		"transaction_type": "BUY",
+		"quantity": quantity,
+		"product": "NRML",
+		"order_type": "MARKET",
+		"validity": "DAY",
+
+	}
+	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+		payload["exchange"] = "BFO";
+	}
+	if(tradingsymbol.startsWith("BANKEX")) {
+		payload["order_type"] = "LIMIT"
+		payload["price"] = lastPrice + 0.5; // since bankex does not allow market order
+	}
+	try {
+		await kc.placeOrder("regular", payload)
+	} catch(e) {
+		console.log(e)
+	}
+
+}
+
+
+async function pnlExitLogic(ticks, forceExit = false) {
+
+	
+	let p = await getPnl(ticks);
+	let pnl = p["pnl"] ? Number(p["pnl"]) : 0;
+	let maxLossSymbol = p["maxLossSymbol"]
+	let symbol1 = p["symbol1"]
+	let symbol2 = p["symbol2"]
+	let symbol3 = p["symbol3"]
+	let maxLossQty = p["maxLossQty"]
+	let symbolQty1 = p["symbolQty1"]
+	let symbolQty2 = p["symbolQty2"]
+	let symbolQty3 = p["symbolQty3"]
+	let tmpPlatformLoss = maxPlatformLoss;
+	let steps = parseInt(pnl / trailSL);
+	if(steps > 0) {
+		tmpPlatformLoss = tmpPlatformLoss - (steps * trailSL)
+	}
+	if(tmpPlatformLoss < curPlatformLoss) {
+		curPlatformLoss = tmpPlatformLoss;
+	}
+	
+
+	
+	console.log("pnl = " + pnl + " Current Platform Loss Limit " + curPlatformLoss)
+	console.log(p)
+
+	try {
+		//exit position if patform loss is exceeded. First exit the position which has max loss value
+		let exit = (pnl * -1) >= curPlatformLoss;
+
+		if(exit || forceExit) {
+			
+			for (let i = 1; i <=4; i++) {
+				//exit positions at market price
+				let tradingsymbol, sellQty;
+				if(i == 1) {
+					tradingsymbol = maxLossSymbol
+					sellQty = maxLossQty;
+				}
+				if(i == 2) {
+					tradingsymbol = symbol1;
+					sellQty = symbolQty1
+				}
+				if(i == 3) {
+					tradingsymbol = symbol2;
+					sellQty = symbolQty2
+				}
+				if(i==4) {
+					tradingsymbol = symbol3;
+					sellQty = symbolQty3
+				}
+				if(!tradingsymbol) return;
+				
+				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
+				let numFreezes = parseInt(sellQty / freezeLimit);
+				let remQty = sellQty % freezeLimit;
+				
+				for (let i = 1; i<=numFreezes; i++) {
+					let finalKc = kc;
+					if(i > 15) {
+						finalKc = kc2
+					}
+					exitAtMarketPrice(tradingsymbol, freezeLimit, finalKc) 
+				}
+				if(remQty > 0) {
+					exitAtMarketPrice(tradingsymbol, remQty, kc)
+				}
+
+				await new Promise(resolve => setTimeout(resolve, 500));
+
+			}
+			
+			
+			
+		}
+
+	}catch(e) {
+		console.log(e);
+	}
+}
+
+async function getPnl(ticks) {
+	let pnl = 0;
+	let pos= await kc.getPositions();
+
+	let maxLossSymbol; //store the maximum loss  trading symbol, We will exit that first and then the remaining symbols
+	let maxLoss = 0;
+	let symbol1, symbol2, symbol3, symbol4;
+	let maxLossQty = 0, symbolQty1 = 0, symbolQty2 = 0, symbolQty3 = 0, symbolQty4=0;
+	pos["net"].forEach(p => { 
+		
+		if(p.quantity == 0) {
+			pnl = pnl + (p.sell_value - p.buy_value)
+		} else {
+			let ticker = getTicker(ticks, p.instrument_token)
+			
+			
+			let last_price = ticker ? ticker.last_price : p.last_price; //use last ticker price, else use from get positions
+			let symbolPnl = (p.sell_value - p.buy_value) + (p.quantity * last_price * p.multiplier) 
+			pnl = pnl + symbolPnl
+			
+			if(p.quantity < 0) {
+				if(symbolPnl < maxLoss) {
+					maxLoss = symbolPnl;
+					maxLossSymbol = p.tradingsymbol;
+					maxLossQty = p.quantity * -1;
+				}
+				if(!symbol1) {
+					symbol1 = p.tradingsymbol;
+					symbolQty1 = p.quantity * -1
+				} else if(!symbol2) {
+					symbol2 = p.tradingsymbol;
+					symbolQty2 = p.quantity * -1
+				} else if(!symbol3) {
+					symbol3 = p.tradingsymbol;
+					symbolQty3 = p.quantity * -1
+				} else if(!symbol4) {
+					symbol4 = p.tradingsymbol;
+					symbolQty4 = p.quantity * -1
+				}
+				
+			}
+
+		}
+		
+	})
+	if(symbol1 == maxLossSymbol) {
+		symbol1 = symbol2;
+		symbol2 = symbol3;
+		symbol3 = symbol4;
+		symbolQty1 = symbolQty2;
+		symbolQty2 = symbolQty3;
+		symbolQty3 = symbolQty4;
+	} else if(symbol2 = maxLossSymbol) {
+		symbol2 = symbol3;
+		symbol3 = symbol4;
+		symbolQty2 = symbolQty3;
+		symbolQty3 = symbolQty4
+	} else if(symbol3 = maxLossSymbol) {
+		symbol3 = symbol4;
+		symbolQty3 = symbolQty4;
+	}
+
+	return {"pnl" : pnl, "maxLossSymbol": maxLossSymbol, "symbol1": symbol1, "symbol2": symbol2, "symbol3": symbol3, 
+	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3};
+}
+
+function getTicker(ticks, instrument_token) {
+
+	let tick;
+	ticks.forEach(t => {
+		if( t.instrument_token == instrument_token) {
+			tick = t;
+		}
+		
+	})
+	return tick;
+}
+
+
+async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=false) {
+	
+	let exchange = "NFO";
+	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+		exchange = "BFO"
+	}
+	try {
+		await finalKc.placeOrder("regular", {
+			"exchange": exchange,
+			"tradingsymbol": tradingsymbol,
+			"transaction_type": "BUY",
+			"quantity": qty,
+			"product": "NRML",
+			"order_type": "MARKET",
+			"validity": "DAY",
+
+		})
+	} catch(e) {
+		console.log(e)
+		if(!ignoreCatch) { // if exception due to rate limit, try once again after 500 ms
+			await new Promise(resolve => setTimeout(resolve, 500));
+			exitAtMarketPrice(tradingsymbol, qty, finalKc, true)
+		}
+		
+	}
+	
+}
+
+
+async function cancelTrigger(currentOrder) {
+
+	let orders = await kc.getOrders();
+	orders.sort((a, b) => Number(a.order_id) - Number(b.order_id));
+			
+	let  orderIds = [];
+	let rem = currentOrder.quantity;
+	if(currentOrder.status == 'CANCELLED' && currentOrder.pending_quantity > 0) {
+		rem = currentOrder.filled_quantity
+	}
+	let lastOrderId;
+	let qtyToCancel = 0;
+
+	orders.forEach(o => {
+		if(currentOrder.tradingsymbol != o.tradingsymbol) return;
+		if(o.order_type =='SL' && o.status == 'TRIGGER PENDING' && rem > 0) {
+			let orderId = o.order_id;
+			rem = rem - o.quantity;
+			if(rem < 0) {
+				lastOrderId = o.order_id // last quantity remaining. This will need qty modification in the SL trigger order, rather than cancelling
+			} else {
+				if(!orderIds.includes(orderId)) {
+					orderIds.push(orderId); //orderIds to cancel
+				}
+				qtyToCancel += o.quantity;
+			}
+		}
+	});
+	if(rem < 0) {
+		qtyToCancel = qtyToCancel + (rem * -1);
+	}
+	totalSLQty[currentOrder.tradingsymbol] = totalSLQty[currentOrder.tradingsymbol] - qtyToCancel; //adjust SL quantity first since concurrency problems can be there
+	console.log("order ids " + orderIds + " last Order Id " + lastOrderId + " rem  =" + rem)
+	for(let i = 0; i< orderIds.length; i++) {
+		console.log("Cancelling Trigger order id  " + orderIds[i]);
+		await kc.cancelOrder("regular", orderIds[i])
+	}
+	//modify the last order
+	if(rem < 0) {
+		console.log("Modifying Trigger order id  " + lastOrderId);
+		autoModifyInProcess = true;
+		await kc.modifyOrder("regular", lastOrderId, {quantity: rem * -1})
+		setTimeout(function() {
+			autoModifyInProcess = false; 
+		}, 1000); 
+	}
 }
 
 function arraysEqual(arr1, arr2) {
@@ -226,11 +815,13 @@ function arraysEqual(arr1, arr2) {
 	return sortedArr1.every((element, index) => element === sortedArr2[index]);
 }
 
+let subscribeItems = [260105] //banknifty
 async function subscribe() {
-	var items = [260105, 256265, 257801, 265, 288009, 274441]; //bank nifty
+	//var items = [260105, 256265, 257801, 265, 288009, 274441]; 
    
-	ticker.subscribe(items);
-	ticker.setMode(ticker.modeFull, items);
+	//uncomment to subscribe
+	//ticker.subscribe(subscribeItems);
+	//ticker.setMode(ticker.modeFull, subscribeItems);
 }
 
 
@@ -269,6 +860,9 @@ app.post('/exitPositions', urlencodedParser, async (req, res) => {
 	res.send(response)
 })
 
+
+
+
 app.post('/sell', urlencodedParser, async (req, res) => {
 	
 	let tradingsymbol = calculateTradingSymbol(req.body.strike, req.body.instrument, req.body.cepe)
@@ -298,6 +892,13 @@ app.post('/exitAtMarket', urlencodedParser, async (req, res) => {
 	let response = await exitAtMarket(tradingsymbol);
 	res.send(response);
 })
+
+app.post('/exitAllAtMarket', urlencodedParser, async (req, res) => {
+	
+	let response = await pnlExitLogic(currentTicks, true);
+	res.send(response)
+})
+
 
 app.get('/existingPositions', urlencodedParser, async (req, res) => {
 	
@@ -435,7 +1036,7 @@ app.post('/updateStoploss', urlencodedParser, async (req, res) => {
 			
 			
 		} else if (el.quantity < 0 && cepe == 'PE' && sl < spotPrice && firstPE) {
-			if(Math.abs(sl - spotPrice) < Math.abs(sl - firstSpotPrice)) { // if this instrument is nearer to SL that means SL was intended for this instrument
+			if(Math.abs(sl - spotPrice) < Math.abs(sl - firstSpotPricePE)) { // if this instrument is nearer to SL that means SL was intended for this instrument
 				
 				stoplossLevels[underlying]["stoploss"] = sl;
 				stoplossLevels[underlying]["tradingsymbol"] = el.tradingsymbol;
@@ -728,6 +1329,22 @@ function getHedgesStrikeDiff(tradingsymbol) {
 	}
 }
 
+function getStrikePriceDiff(tradingsymbol) {
+	if(tradingsymbol.startsWith("BANKNIFTY")) {
+		return 0.5;
+	} else if(tradingsymbol.startsWith("NIFTY")) {
+		return 0.4
+	} else if(tradingsymbol.startsWith("MIDCP")) {
+		return 0.3
+	} else if(tradingsymbol.startsWith("FINNIFTY")) {
+		return 0.4;
+	} else if(tradingsymbol.startsWith("SENSEX")) {
+		return 0.6
+	} else if(tradingsymbol.startsWith("BANKEX")) {
+		return 0.6;
+	}
+}
+
 async function getSingleSellPos() {
 	let num = 0;
 	let positions = await kc.getPositions();
@@ -823,7 +1440,7 @@ function getUnderlying(tradingsymbol) {
 
 
 function getFreezeLimit(price, tradingsymbol) {
-	if(tradingsymbol.startsWith("BANKEX")) return 600;
+	if(tradingsymbol.startsWith("BANKEX")) return 900;
 	if(price > 5750 && price <=8625) return 5500;
 	if(price >8625 && price <=11500 ) return 4200;
 	if(price > 11500 && price <=17250) return 2800;
@@ -871,34 +1488,34 @@ function getLotSize(tradingsymbol) {
 }
 
 function getSLValue(symbol) {
-	let stoploss = 12; //for nify and finnifty
+	let stoploss = 14; //for nify and finnifty
 			
 	if(symbol.startsWith("MIDCP")) {
-		stoploss = 8
+		stoploss = 10
 	}
 	if(symbol.startsWith("BANKNIFTY")) {
-		stoploss = 25;
-	}
-	if(symbol.startsWith("SENSEX")) {
-		stoploss = 25;
-		
+		stoploss = 32;
 	}
 	if(symbol.startsWith("BANKEX")) {
-		stoploss = 30;
+		stoploss = 36;
+		
+	}
+	if(symbol.startsWith("SENSEX")) {
+		stoploss = 40;
 		
 	}
 	return stoploss;
 }
 
 function getSLBuffer(symbol) {
-	let buffer = 1; 
+	let buffer = 2; //midcap & nifty
 			
 	
 	if(symbol.startsWith("BANKNIFTY")) {
-		buffer = 2;
+		buffer = 3;
 	}
 	if(symbol.startsWith("SENSEX") || symbol.startsWith("BANKEX")) {
-		buffer = 2;
+		buffer = 4;
 		
 	}
 	if(symbol.startsWith("FINNIFTY")) {
@@ -906,6 +1523,30 @@ function getSLBuffer(symbol) {
 		
 	}
 	return buffer;
+}
+
+async function stoplossOrderPlace(price, tradingsymbol, qty)  {
+	console.log("placing SL order")
+	let exchange = "NFO";
+	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+		exchange = "BFO";
+	}
+	let payload = {
+		"exchange": exchange,
+		"tradingsymbol": tradingsymbol,
+		"transaction_type": "BUY",
+		"quantity": qty,
+		"product": "NRML",
+		"order_type": "SL",
+		"trigger_price": price,
+		"price": price + getSLBuffer(tradingsymbol),
+		"validity": "DAY",
+		
+		
+		
+	}
+	console.log(payload)
+	return await kc.placeOrder("regular", payload)
 }
 
 function isExpiry(tradingsymbol) {
@@ -1053,6 +1694,7 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 	let hedgeTradingsymbol1;
 	let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 	
+	//sum all the -ve positions
 	positions["net"].forEach(el => {
 		let cepe1 = el.tradingsymbol.substring(el.tradingsymbol.length - 2);
 		if(el.quantity < 0 && el.tradingsymbol == tradingsymbol) {
