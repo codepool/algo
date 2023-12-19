@@ -923,13 +923,13 @@ function onClose(reason) {
 	console.log("Closed connection on close", reason);
 }
 
-app.get('/', async (req, res) => {
+app.get('/token', async (req, res) => {
 	
 	//get Token if not present
 	await getToken();
 	console.log("Now Getting Token 2")
 	await getToken(true);
-	res.sendFile(path.join(__dirname, 'index.html'));
+	res.send("Success!!")
 });
 
 app.post('/sellHedges', urlencodedParser, async (req, res) => {
