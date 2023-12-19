@@ -279,6 +279,7 @@ async function fn1(finalKc) {
 let slOrderIds = []; //fill this global variable
 let autoModifyInProcess = false;
 let totalSLQty = {}; //fill this global variable
+let cancelOrdersInProgress = [];
 
 async function initGlobal()  {
 	let orders= await kc.getOrders();
@@ -306,6 +307,25 @@ async function onTrade(order) {
 		*/
 		console.log(order)
 		let slModified = false
+
+		if(order.order_type == 'SL' && order.status == 'CANCELLED') {
+			//on cancelling SL, exit all sell order at market price
+			/*let freezeLimit =  getFreezeLimit(getStrike(order.tradingsymbol)["strike"], order.tradingsymbol);
+			let numFreezes = parseInt(sellQty / freezeLimit);
+			let remQty = sellQty % freezeLimit;
+			
+			for (let i = 1; i<=numFreezes; i++) {
+				let finalKc = kc;
+				if(i > 15) {
+					finalKc = kc2
+				}
+				exitAtMarketPrice(order.tradingsymbol, freezeLimit, finalKc) 
+			}
+			if(remQty > 0) {
+				exitAtMarketPrice(tradingsymbol, remQty, kc)
+			}*/
+
+		}
 	
 		if(order.order_type == 'SL' && order.status == 'TRIGGER PENDING') {
 			if(!slOrderIds.includes(order.order_id)) {
@@ -336,7 +356,10 @@ async function onTrade(order) {
 
 
 		
-		if(!((order.status == 'CANCELLED' && order.pending_quantity > 0) || order.status == 'COMPLETE') || order.order_type == 'SL') return; //we do nothing for partially filled orders / SL  Orders
+		if(!((order.status == 'CANCELLED' && order.pending_quantity > 0) || order.status == 'COMPLETE') || order.order_type == 'SL') {
+			console.log("No action to perform")
+			return; //we do nothing for partially filled orders / SL  Orders
+		}
 		
 		if(order.transaction_type == 'SELL') {
 			//check if sell order is not from the hedge position
@@ -358,7 +381,7 @@ async function onTrade(order) {
 				orderQty = order.filled_quantity
 			}
 
-			buyAutoHedges(order.tradingsymbol, orderQty);
+			buyAutoHedges(order.tradingsymbol, orderQty, order.price);
 
 			let stoploss = getSLValue(order.tradingsymbol);
 			let triggerPrice = Math.round(order.average_price) + stoploss
@@ -421,7 +444,7 @@ async function onTrade(order) {
 
 }
 
-async function buyAutoHedges(sellTradingSymbol, quantity) {
+async function buyAutoHedges(sellTradingSymbol, quantity, sellPrice) {
 
 	console.log("Buying Auto hedges")
 
@@ -431,13 +454,23 @@ async function buyAutoHedges(sellTradingSymbol, quantity) {
 	let sellQty = 0;
 	let hedgeTradingSymbol;
 	let lastPrice;
+	let strike = getStrike(sellTradingSymbol)["strike"];
+	let minStrikeDiff = 1000000;
 
+	//check if hedges already present. Then just buy that hedge. If multiple hedges choose the closer strike hedge
 	pos["net"].forEach(p => { 
+		
 		let cepe1 = p.tradingsymbol.substring(p.tradingsymbol.length - 2)
-		if(p.quantity > 0 && cepe == cepe1 && p.tradingsymbol.substring(0,5) == sellTradingSymbol.substring(0,5)) {
+		if(cepe != cepe1 || p.quantity <=0) return;
+
+		let strike1 = getStrike(p.tradingsymbol)["strike"];
+
+		let minStrikeDiff1 = Math.abs(strike1 - strike);
+		if(p.tradingsymbol.substring(0,5) == sellTradingSymbol.substring(0,5) && minStrikeDiff1 < minStrikeDiff) {
 			hedgeQty = hedgeQty + p.quantity
 			hedgeTradingSymbol = p.tradingsymbol;
 			lastPrice = p.last_price;
+			minStrikeDiff = minStrikeDiff1;
 		}
 		if(p.tradingsymbol == sellTradingSymbol && p.quantity < 0) {
 			sellQty = p.quantity * -1
@@ -524,7 +557,15 @@ async function buyAutoHedges(sellTradingSymbol, quantity) {
 	
 	for (let i = 0; i < json.length - 1; i++) {
 
-		if(Math.abs(json[i]["last_price"] - json[i + 1]["last_price"]) < getStrikePriceDiff(sellTradingSymbol)) {
+		if(sellPrice < 7 && json[i]["last_price"] < 1.5) {
+			hedgeTradingSymbol = json[i]["tradingsymbol"];
+			lastPrice =  json[i]["last_price"];
+			
+		} else if(sellPrice < 10 && json[i]["last_price"] < 2) {
+			hedgeTradingSymbol = json[i]["tradingsymbol"];
+			lastPrice =  json[i]["last_price"];
+
+		} else if(Math.abs(json[i]["last_price"] - json[i + 1]["last_price"]) < getStrikePriceDiff(sellTradingSymbol)) {
 			hedgeTradingSymbol = json[i]["tradingsymbol"];
 			lastPrice =  json[i]["last_price"];
 			break;
@@ -764,7 +805,7 @@ async function cancelTrigger(currentOrder) {
 			
 	let  orderIds = [];
 	let rem = currentOrder.quantity;
-	if(currentOrder.status == 'CANCELLED' && currentOrder.pending_quantity > 0) {
+	if(currentOrder.order_type != 'SL' && currentOrder.status == 'CANCELLED' && currentOrder.pending_quantity > 0) {
 		rem = currentOrder.filled_quantity
 	}
 	let lastOrderId;
@@ -774,14 +815,17 @@ async function cancelTrigger(currentOrder) {
 		if(currentOrder.tradingsymbol != o.tradingsymbol) return;
 		if(o.order_type =='SL' && o.status == 'TRIGGER PENDING' && rem > 0) {
 			let orderId = o.order_id;
-			rem = rem - o.quantity;
+			
+			if(!cancelOrdersInProgress.includes(orderId)) {
+				
+				cancelOrdersInProgress.push(orderId);
+				qtyToCancel += o.quantity;
+				rem = rem - o.quantity;
+			}
 			if(rem < 0) {
 				lastOrderId = o.order_id // last quantity remaining. This will need qty modification in the SL trigger order, rather than cancelling
 			} else {
-				if(!orderIds.includes(orderId)) {
-					orderIds.push(orderId); //orderIds to cancel
-				}
-				qtyToCancel += o.quantity;
+				orderIds.push(orderId); //orderIds to cancel
 			}
 		}
 	});
@@ -792,13 +836,20 @@ async function cancelTrigger(currentOrder) {
 	console.log("order ids " + orderIds + " last Order Id " + lastOrderId + " rem  =" + rem)
 	for(let i = 0; i< orderIds.length; i++) {
 		console.log("Cancelling Trigger order id  " + orderIds[i]);
-		await kc.cancelOrder("regular", orderIds[i])
+		try {
+			await kc.cancelOrder("regular", orderIds[i])
+			
+		} catch (e) {
+			console.log("Cancel trigger already in progess handling")
+		}
+		
 	}
 	//modify the last order
 	if(rem < 0) {
 		console.log("Modifying Trigger order id  " + lastOrderId);
 		autoModifyInProcess = true;
 		await kc.modifyOrder("regular", lastOrderId, {quantity: rem * -1})
+		cancelOrdersInProgress = array.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
 		setTimeout(function() {
 			autoModifyInProcess = false; 
 		}, 1000); 
@@ -1339,9 +1390,9 @@ function getStrikePriceDiff(tradingsymbol) {
 	} else if(tradingsymbol.startsWith("FINNIFTY")) {
 		return 0.4;
 	} else if(tradingsymbol.startsWith("SENSEX")) {
-		return 0.6
+		return 0.5
 	} else if(tradingsymbol.startsWith("BANKEX")) {
-		return 0.6;
+		return 0.5;
 	}
 }
 
