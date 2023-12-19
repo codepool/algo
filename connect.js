@@ -836,6 +836,7 @@ async function cancelTrigger(currentOrder) {
 
 				if(rem < 0) {
 					lastOrderId = o.order_id // last quantity remaining. This will need qty modification in the SL trigger order, rather than cancelling
+					qtyToCancel = qtyToCancel + (rem + o.quantity);
 				} else {
 					orderIds.push(orderId); //orderIds to cancel
 				}
@@ -843,9 +844,7 @@ async function cancelTrigger(currentOrder) {
 			
 		}
 	});
-	if(rem < 0) {
-		qtyToCancel = qtyToCancel + (rem * -1);
-	}
+	
 	await lock.acquire('totalSLQty', async () => {
 		totalSLQty[currentOrder.tradingsymbol] = totalSLQty[currentOrder.tradingsymbol] - qtyToCancel; //adjust SL quantity first since concurrency problems can be there
 	})
@@ -884,7 +883,9 @@ async function cancelOrder(orderId, finalKc) {
 			} else {
 				finalKc = kc
 			}
+			await new Promise(resolve => setTimeout(resolve, 200));
 			await cancelOrder("regular", orderId, finalKc)
+			
 		}
 	}
 }
@@ -1647,7 +1648,9 @@ async function stoplossOrderPlace(price, tradingsymbol, qty, finalKc)  {
 		} else {
 			finalKc = kc;
 		}
+		await new Promise(resolve => setTimeout(resolve, 200));
 		await stoplossOrderPlace(price, tradingsymbol, qty, finalKc)
+		
 	}
 	
 }
