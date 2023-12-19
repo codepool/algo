@@ -14,6 +14,8 @@ const WebSocket = require('ws');
 const e = require("express");
 const path = require('path');
 const { fn } = require("moment");
+const AsyncLock = require('async-lock');
+const lock = new AsyncLock();
 
 const wss = new WebSocket.Server({ noServer: true });
 
@@ -390,7 +392,16 @@ async function onTrade(order) {
 				totalSLQty[order.tradingsymbol] = 0;
 			}
 			totalSLQty[order.tradingsymbol] = totalSLQty[order.tradingsymbol] + orderQty;
-			await stoplossOrderPlace(triggerPrice, order.tradingsymbol, orderQty)
+			
+			try {
+				await stoplossOrderPlace(triggerPrice, order.tradingsymbol, orderQty, kc)
+			} catch(e) {
+				console.log("Error !");
+				console.log(e)
+			}
+           
+			
+			
 			
 
 		} else if(order.transaction_type == 'BUY')  {
@@ -811,50 +822,73 @@ async function cancelTrigger(currentOrder) {
 	let lastOrderId;
 	let qtyToCancel = 0;
 
-	orders.forEach(o => {
+	orders.forEach(async o => {
 		if(currentOrder.tradingsymbol != o.tradingsymbol) return;
 		if(o.order_type =='SL' && o.status == 'TRIGGER PENDING' && rem > 0) {
 			let orderId = o.order_id;
-			
-			if(!cancelOrdersInProgress.includes(orderId)) {
+			await lock.acquire('cancelOrdersInProgress', async () => {
+				if(!cancelOrdersInProgress.includes(orderId)) {
 				
-				cancelOrdersInProgress.push(orderId);
-				qtyToCancel += o.quantity;
-				rem = rem - o.quantity;
-			}
-			if(rem < 0) {
-				lastOrderId = o.order_id // last quantity remaining. This will need qty modification in the SL trigger order, rather than cancelling
-			} else {
-				orderIds.push(orderId); //orderIds to cancel
-			}
+					cancelOrdersInProgress.push(orderId);
+					qtyToCancel += o.quantity;
+					rem = rem - o.quantity;
+				}
+
+				if(rem < 0) {
+					lastOrderId = o.order_id // last quantity remaining. This will need qty modification in the SL trigger order, rather than cancelling
+				} else {
+					orderIds.push(orderId); //orderIds to cancel
+				}
+			});
+			
 		}
 	});
 	if(rem < 0) {
 		qtyToCancel = qtyToCancel + (rem * -1);
 	}
-	totalSLQty[currentOrder.tradingsymbol] = totalSLQty[currentOrder.tradingsymbol] - qtyToCancel; //adjust SL quantity first since concurrency problems can be there
+	await lock.acquire('totalSLQty', async () => {
+		totalSLQty[currentOrder.tradingsymbol] = totalSLQty[currentOrder.tradingsymbol] - qtyToCancel; //adjust SL quantity first since concurrency problems can be there
+	})
+	
 	console.log("order ids " + orderIds + " last Order Id " + lastOrderId + " rem  =" + rem)
 	for(let i = 0; i< orderIds.length; i++) {
 		console.log("Cancelling Trigger order id  " + orderIds[i]);
-		try {
-			await kc.cancelOrder("regular", orderIds[i])
-			
-		} catch (e) {
-			console.log("Cancel trigger already in progess handling")
-		}
+		
+		await cancelOrder(orderIds[i], kc)
+		
 		
 	}
 	//modify the last order
 	if(rem < 0) {
 		console.log("Modifying Trigger order id  " + lastOrderId);
-		autoModifyInProcess = true;
+		autoModifyInProcess = true; //mofidy order will call OnTrade, we want to tell we are modifying this automatically 
 		await kc.modifyOrder("regular", lastOrderId, {quantity: rem * -1})
-		cancelOrdersInProgress = array.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
+		await lock.acquire('totalSLQty', async () => {
+			cancelOrdersInProgress = array.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
+		})
+		
 		setTimeout(function() {
 			autoModifyInProcess = false; 
 		}, 1000); 
 	}
 }
+
+async function cancelOrder(orderId, finalKc) {
+	try {
+		await finalKc.cancelOrder("regular", orderId)
+	} catch(e) {
+		if(e.error_type == 'NetworkException') {
+
+			if(finalKc == kc) {
+				finalKc = kc2
+			} else {
+				finalKc = kc
+			}
+			await cancelOrder("regular", orderId, finalKc)
+		}
+	}
+}
+
 
 function arraysEqual(arr1, arr2) {
 	if (arr1.length !== arr2.length) {
@@ -889,8 +923,12 @@ function onClose(reason) {
 	console.log("Closed connection on close", reason);
 }
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
 	res.sendFile(path.join(__dirname, 'index.html'));
+	//get Token if not present
+	await getToken();
+	console.log("Now Getting Token 2")
+	await getToken(true);
 });
 
 app.post('/sellHedges', urlencodedParser, async (req, res) => {
@@ -1559,6 +1597,7 @@ function getSLValue(symbol) {
 }
 
 function getSLBuffer(symbol) {
+	
 	let buffer = 2; //midcap & nifty
 			
 	
@@ -1576,7 +1615,7 @@ function getSLBuffer(symbol) {
 	return buffer;
 }
 
-async function stoplossOrderPlace(price, tradingsymbol, qty)  {
+async function stoplossOrderPlace(price, tradingsymbol, qty, finalKc)  {
 	console.log("placing SL order")
 	let exchange = "NFO";
 	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
@@ -1597,7 +1636,19 @@ async function stoplossOrderPlace(price, tradingsymbol, qty)  {
 		
 	}
 	console.log(payload)
-	return await kc.placeOrder("regular", payload)
+	try {
+		await finalKc.placeOrder("regular", payload)
+	} catch(e) {
+		console.log(e);
+		//too many requests error, try with different kc, rotate alternatively
+		if(finalKc == kc) {
+			finalKc = kc2;
+		} else {
+			finalKc = kc;
+		}
+		await stoplossOrderPlace(price, tradingsymbol, qty, finalKc)
+	}
+	
 }
 
 function isExpiry(tradingsymbol) {
@@ -2798,39 +2849,6 @@ function modifyOrder(variety) {
 		});
 }
 
-function cancelOrder(variety) {
-	var tradingsymbol = "RELIANCE";
-	var exchange = "NSE";
-	var instrument = exchange + ":" + tradingsymbol;
-
-	function cancel(variety, order_id) {
-		kc.cancelOrder(variety, order_id)
-			.then(function(resp) {
-				console.log(resp);
-			}).catch(function(err) {
-				console.log(err);
-			});
-	}
-
-	kc.getLTP([instrument])
-		.then(function(resp) {
-			kc.placeOrder(variety, {
-				"exchange": exchange,
-				"tradingsymbol": tradingsymbol,
-				"transaction_type": "BUY",
-				"quantity": 1,
-				"product": "MIS",
-				"order_type": "LIMIT",
-				"price": resp[instrument].last_price - 5
-			}).then(function(resp) {
-				cancel(variety, resp.order_id);
-			}).catch(function(err) {
-				console.log("Order place error", err);
-			});
-		}).catch(function(err) {
-			console.log(err);
-		});
-}
 
 function getGTT(trigger_id) {
 	if (trigger_id) {
