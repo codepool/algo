@@ -924,11 +924,12 @@ function onClose(reason) {
 }
 
 app.get('/', async (req, res) => {
-	res.sendFile(path.join(__dirname, 'index.html'));
+	
 	//get Token if not present
 	await getToken();
 	console.log("Now Getting Token 2")
 	await getToken(true);
+	res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.post('/sellHedges', urlencodedParser, async (req, res) => {
