@@ -16,6 +16,9 @@ const path = require('path');
 const { fn } = require("moment");
 const AsyncLock = require('async-lock');
 const lock = new AsyncLock();
+const { Mutex } = require('async-mutex');
+const functionMutex = new Mutex();
+
 
 const wss = new WebSocket.Server({ noServer: true });
 
@@ -298,7 +301,15 @@ async function initGlobal()  {
 
 	})
 }
+
+async function fn2(i) {
+	const release = await functionMutex.acquire();
+	console.log(i)
+	await new Promise((resolve) => setTimeout(resolve, 1000));
+	release();
+}
 async function onTrade(order) {
+	
 	try {
 		
 		/*
@@ -379,7 +390,7 @@ async function onTrade(order) {
 				return;
 			}
 			let orderQty = order.quantity
-			if(order.status == 'CANCELLED' && order.pending_quantity > 0) {
+			if(order.status == 'CANCELLED' && order.pending_quantity > 0 && order.filled_quantity > 0) {
 				orderQty = order.filled_quantity
 			}
 
@@ -811,28 +822,27 @@ async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=false
 
 async function cancelTrigger(currentOrder) {
 
-	let orders = await kc.getOrders();
-	orders.sort((a, b) => Number(a.order_id) - Number(b.order_id));
-			
-	let  orderIds = [];
-	let rem = currentOrder.quantity;
-	if(currentOrder.order_type != 'SL' && currentOrder.status == 'CANCELLED' && currentOrder.pending_quantity > 0) {
-		rem = currentOrder.filled_quantity
-	}
-	let lastOrderId;
-	let qtyToCancel = 0;
-
-	orders.forEach(async o => {
-		if(currentOrder.tradingsymbol != o.tradingsymbol) return;
-		if(o.order_type =='SL' && o.status == 'TRIGGER PENDING' && rem > 0) {
-			let orderId = o.order_id;
-			await lock.acquire('cancelOrdersInProgress', async () => {
-				if(!cancelOrdersInProgress.includes(orderId)) {
+	const release = await functionMutex.acquire();
+	try {
+		console.log("Cancelling trigger for corresponding to exit order id " + currentOrder.order_id)
+		let orders = await kc.getOrders();
+		orders.sort((a, b) => Number(a.order_id) - Number(b.order_id));
 				
-					cancelOrdersInProgress.push(orderId);
-					qtyToCancel += o.quantity;
-					rem = rem - o.quantity;
-				}
+		let  orderIds = [];
+		let rem = currentOrder.quantity;
+		if(currentOrder.order_type != 'SL' && currentOrder.status == 'CANCELLED' && currentOrder.pending_quantity > 0 && currentOrder.filled_quantity > 0) {
+			rem = currentOrder.filled_quantity
+		}
+		let lastOrderId;
+		let qtyToCancel = 0;
+
+		orders.forEach(async o => {
+			if(currentOrder.tradingsymbol != o.tradingsymbol) return;
+			if(o.order_type =='SL' && o.status == 'TRIGGER PENDING' && rem > 0) {
+				let orderId = o.order_id;
+				qtyToCancel += o.quantity;
+				rem = rem - o.quantity;
+				
 
 				if(rem < 0) {
 					lastOrderId = o.order_id // last quantity remaining. This will need qty modification in the SL trigger order, rather than cancelling
@@ -840,51 +850,50 @@ async function cancelTrigger(currentOrder) {
 				} else {
 					orderIds.push(orderId); //orderIds to cancel
 				}
-			});
-			
-		}
-	});
-	
-	await lock.acquire('totalSLQty', async () => {
+			}
+		});
+		
 		totalSLQty[currentOrder.tradingsymbol] = totalSLQty[currentOrder.tradingsymbol] - qtyToCancel; //adjust SL quantity first since concurrency problems can be there
-	})
+		
+		console.log("order ids " + orderIds + " last Order Id " + lastOrderId + " rem  =" + rem)
+		for(let i = 0; i< orderIds.length; i++) {
+			console.log("Cancelling Trigger order id  " + orderIds[i]);
+			await cancelOrder(orderIds[i], kc)
+
+		}
+		//modify the last order
+		if(rem < 0) {
+			console.log("Modifying Trigger order id  " + lastOrderId);
+			autoModifyInProcess = true; //mofidy order will call OnTrade, we want to tell we are modifying this automatically 
+			await kc.modifyOrder("regular", lastOrderId, {quantity: rem * -1})
+			//cancelOrdersInProgress = cancelOrdersInProgress.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
+			
+			setTimeout(function() {
+				autoModifyInProcess = false; 
+			}, 1000); 
+		}
+	} catch(e) {
+
+	} finally {
+		release();
+	}
 	
-	console.log("order ids " + orderIds + " last Order Id " + lastOrderId + " rem  =" + rem)
-	for(let i = 0; i< orderIds.length; i++) {
-		console.log("Cancelling Trigger order id  " + orderIds[i]);
-		
-		await cancelOrder(orderIds[i], kc)
-		
-		
-	}
-	//modify the last order
-	if(rem < 0) {
-		console.log("Modifying Trigger order id  " + lastOrderId);
-		autoModifyInProcess = true; //mofidy order will call OnTrade, we want to tell we are modifying this automatically 
-		await kc.modifyOrder("regular", lastOrderId, {quantity: rem * -1})
-		await lock.acquire('totalSLQty', async () => {
-			cancelOrdersInProgress = cancelOrdersInProgress.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
-		})
-		
-		setTimeout(function() {
-			autoModifyInProcess = false; 
-		}, 1000); 
-	}
 }
 
-async function cancelOrder(orderId, finalKc) {
+async function cancelOrder(orderId, finalKc, attempts = 1) {
 	try {
 		await finalKc.cancelOrder("regular", orderId)
 	} catch(e) {
-		if(e.error_type == 'NetworkException') {
-
-			if(finalKc == kc) {
-				finalKc = kc2
-			} else {
-				finalKc = kc
+		if(e.error_type == 'NetworkException' /*&& attempts <= 6*/) {
+			//await new Promise(resolve => setTimeout(resolve, 200));
+			//await cancelOrder("regular", orderId, finalKc, attempts + 1)
+			try {
+				await kc2.cancelOrder("regular", orderId)
+			} catch(e) {
+				console.log("Failed in 2nd attempt as well for cancel SL trigger")
+				console.log(e)
 			}
-			await new Promise(resolve => setTimeout(resolve, 200));
-			await cancelOrder("regular", orderId, finalKc)
+			
 			
 		}
 	}
@@ -1617,41 +1626,56 @@ function getSLBuffer(symbol) {
 	return buffer;
 }
 
-async function stoplossOrderPlace(price, tradingsymbol, qty, finalKc)  {
-	console.log("placing SL order")
-	let exchange = "NFO";
-	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
-		exchange = "BFO";
-	}
-	let payload = {
-		"exchange": exchange,
-		"tradingsymbol": tradingsymbol,
-		"transaction_type": "BUY",
-		"quantity": qty,
-		"product": "NRML",
-		"order_type": "SL",
-		"trigger_price": price,
-		"price": price + getSLBuffer(tradingsymbol),
-		"validity": "DAY",
-		
-		
-		
-	}
-	console.log(payload)
+async function stoplossOrderPlace(price, tradingsymbol, qty, finalKc, attempts = 1)  {
+	const release = await functionMutex.acquire();
 	try {
-		await finalKc.placeOrder("regular", payload)
-	} catch(e) {
-		console.log(e);
-		//too many requests error, try with different kc, rotate alternatively
-		if(finalKc == kc) {
-			finalKc = kc2;
-		} else {
-			finalKc = kc;
+
+		console.log("placing SL order")
+		let exchange = "NFO";
+		if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+			exchange = "BFO";
 		}
-		await new Promise(resolve => setTimeout(resolve, 200));
-		await stoplossOrderPlace(price, tradingsymbol, qty, finalKc)
+		let payload = {
+			"exchange": exchange,
+			"tradingsymbol": tradingsymbol,
+			"transaction_type": "BUY",
+			"quantity": qty,
+			"product": "NRML",
+			"order_type": "SL",
+			"trigger_price": price,
+			"price": price + getSLBuffer(tradingsymbol),
+			"validity": "DAY",
+			
+			
+			
+		}
+		console.log(payload)
+		try {
+			await finalKc.placeOrder("regular", payload)
+		} catch(e) {
+			console.log(e);
+			//too many requests error, try with different kc, rotate alternatively
+			if(e.error_type == 'NetworkException' /*&& attempts <=6*/) {
+				//await new Promise(resolve => setTimeout(resolve, 200));
+				//await stoplossOrderPlace(price, tradingsymbol, qty, finalKc, attempts + 1)
+				try {
+					await kc2.placeOrder("regular", payload)
+
+				} catch(e) {
+					console.log("Failed in Second attemp of stoplossOrderPlace ")
+					console.log(e);
+				}
+				
+			}
+
+		}
 		
+	} catch(e) {
+
+	} finally {
+		release();
 	}
+	
 	
 }
 
@@ -1833,7 +1857,7 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 				payload["price"] = price;
 				payload["order_type"] = "LIMIT"
 			}
-		   await kc.placeOrder("regular", payload)
+		   await kc2.placeOrder("regular", payload)
 	   }
 	   return "Done";
 

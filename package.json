@@ -29,6 +29,7 @@
   "homepage": "https://github.com/zerodhatech/kiteconnectjs#readme",
   "dependencies": {
     "async-lock": "^1.4.0",
+    "async-mutex": "^0.4.0",
     "axios": "^0.21.2",
     "body-parser": "^1.20.1",
     "chai": "^4.3.6",
