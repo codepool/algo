@@ -603,29 +603,37 @@ async function buyAutoHedges(sellTradingSymbol, quantity, sellPrice) {
 }
 
 async function autoHedgeBuyOrder(tradingsymbol, quantity, lastPrice) {
-
-	let payload = {
-		"exchange": "NFO",
-		"tradingsymbol": tradingsymbol,
-		"transaction_type": "BUY",
-		"quantity": quantity,
-		"product": "NRML",
-		"order_type": "MARKET",
-		"validity": "DAY",
-
-	}
-	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
-		payload["exchange"] = "BFO";
-	}
-	if(tradingsymbol.startsWith("BANKEX")) {
-		payload["order_type"] = "LIMIT"
-		payload["price"] = lastPrice + 0.5; // since bankex does not allow market order
-	}
+	const release = await functionMutex.acquire();
 	try {
+		let payload = {
+			"exchange": "NFO",
+			"tradingsymbol": tradingsymbol,
+			"transaction_type": "BUY",
+			"quantity": quantity,
+			"product": "NRML",
+			"order_type": "MARKET",
+			"validity": "DAY",
+	
+		}
+		if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+			payload["exchange"] = "BFO";
+		}
+		if(tradingsymbol.startsWith("BANKEX")) {
+			payload["order_type"] = "LIMIT"
+			payload["price"] = lastPrice + 0.5; // since bankex does not allow market order
+		}
+		
 		await kc.placeOrder("regular", payload)
+		
+		
 	} catch(e) {
-		console.log(e)
+		console.log("Error in buy auto hedges")
+		console.log(e);
+
+	} finally {
+		release();
 	}
+	
 
 }
 
