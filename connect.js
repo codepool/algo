@@ -1596,20 +1596,20 @@ function getLotSize(tradingsymbol) {
 }
 
 function getSLValue(symbol) {
-	let stoploss = 14; //for nify and finnifty
+	let stoploss = 10; //for nify and finnifty
 			
 	if(symbol.startsWith("MIDCP")) {
-		stoploss = 10
+		stoploss = 7
 	}
 	if(symbol.startsWith("BANKNIFTY")) {
-		stoploss = 32;
+		stoploss = 20;
 	}
 	if(symbol.startsWith("BANKEX")) {
-		stoploss = 36;
+		stoploss = 25;
 		
 	}
 	if(symbol.startsWith("SENSEX")) {
-		stoploss = 40;
+		stoploss = 30;
 		
 	}
 	return stoploss;
