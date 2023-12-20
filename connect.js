@@ -863,7 +863,7 @@ async function cancelTrigger(currentOrder) {
 		autoModifyInProcess = true; //mofidy order will call OnTrade, we want to tell we are modifying this automatically 
 		await kc.modifyOrder("regular", lastOrderId, {quantity: rem * -1})
 		await lock.acquire('totalSLQty', async () => {
-			cancelOrdersInProgress = array.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
+			cancelOrdersInProgress = cancelOrdersInProgress.filter(item => item != lastOrderId); //remove the order id from last after modify is done, so it's ready to be modified again
 		})
 		
 		setTimeout(function() {
