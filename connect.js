@@ -148,7 +148,7 @@ app.server = app.listen(port, '0.0.0.0',async () => {
 	instList = await kc.getInstruments("NFO");
 	instListBFO = await kc.getInstruments("BFO");
 	//todayExpiryList = getTodayExpiryInst();
-	initializeTicker();
+	
 	//initGlobal();
 	console.log(`app listening on port ${port}`)
 	
@@ -957,6 +957,7 @@ app.get('/token', async (req, res) => {
 	await getToken();
 	console.log("Now Getting Token 2")
 	await getToken(true);
+	initializeTicker();
 	peakProfit = 0;
 	pnlLogic = true;
 	curPlatformLoss = maxPlatformLoss;
