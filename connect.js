@@ -82,15 +82,19 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 700000;
+let maxPlatformLoss = 250000;
 let curPlatformLoss = maxPlatformLoss;
-let trailSL = 50000; // for every 50k profit trail the platfrom loss limit
+let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
 let stoplossLevels = {};
 
 let currentTicks;
+let pnlObject = {};
+let peakProfit = 0;
+let pnlLogic = false;
 
 function initializeTicker() {
+	console.log("Initializing Ticker")
 	let at = fs.readFileSync("token");
 	ticker = new KiteTicker({
 		api_key: "m3tm90xcurfqs6ed",
@@ -102,7 +106,7 @@ function initializeTicker() {
 	ticker.on('disconnect', onDisconnect);
 	ticker.on('error', onError);
 	ticker.on('close', onClose);
-	ticker.on('order_update', onTrade);
+	//ticker.on('order_update', onTrade);
 }
 
 wss.on('connection', (ws) => {
@@ -145,7 +149,7 @@ app.server = app.listen(port, '0.0.0.0',async () => {
 	instListBFO = await kc.getInstruments("BFO");
 	//todayExpiryList = getTodayExpiryInst();
 	initializeTicker();
-	initGlobal();
+	//initGlobal();
 	console.log(`app listening on port ${port}`)
 	
 	
@@ -223,7 +227,7 @@ let prevSubscribeItems = [];
 let count = 0;
 
 async function onTicks(ticks) {
-	
+	console.log("On Ticks")
 	currentTicks = ticks;
 	let pos= await kc.getPositions();
 	let sellPos = []
@@ -235,7 +239,7 @@ async function onTicks(ticks) {
 
 	})
 	if(sellPos.length == 0) {
-		sellPos = [map["BANKNIFTY"]]
+		sellPos = [map["BANKNIFTY"]] //default subscribe bank nifty
 	}
 	
 	ticker.unsubscribe(subscribeItems)
@@ -261,6 +265,7 @@ async function onTicks(ticks) {
 			//await exitAtMarket(stoplossLevels[map1[t.instrument_token]]["tradingsymbol"]);
 		}
 	})*/
+	
 	await pnlExitLogic(ticks)
 
 	
@@ -638,10 +643,12 @@ async function autoHedgeBuyOrder(tradingsymbol, quantity, lastPrice) {
 }
 
 
+
 async function pnlExitLogic(ticks, forceExit = false) {
 
 	
 	let p = await getPnl(ticks);
+	
 	let pnl = p["pnl"] ? Number(p["pnl"]) : 0;
 	let maxLossSymbol = p["maxLossSymbol"]
 	let symbol1 = p["symbol1"]
@@ -651,25 +658,25 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	let symbolQty1 = p["symbolQty1"]
 	let symbolQty2 = p["symbolQty2"]
 	let symbolQty3 = p["symbolQty3"]
-	let tmpPlatformLoss = maxPlatformLoss;
-	let steps = parseInt(pnl / trailSL);
-	if(steps > 0) {
-		tmpPlatformLoss = tmpPlatformLoss - (steps * trailSL)
+	
+	if(pnl > peakProfit) {
+		peakProfit = pnl;
 	}
-	if(tmpPlatformLoss < curPlatformLoss) {
-		curPlatformLoss = tmpPlatformLoss;
+	if(peakProfit > 0) {
+		let steps = parseInt(peakProfit / trailSL);
+		curPlatformLoss = maxPlatformLoss - (steps * trailSL)
 	}
 	
 
-	
 	console.log("pnl = " + pnl + " Current Platform Loss Limit " + curPlatformLoss)
+	pnlObject = p;
 	console.log(p)
 
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
 		let exit = (pnl * -1) >= curPlatformLoss;
 
-		if(exit || forceExit) {
+		if(pnlLogic && (exit || forceExit)) {
 			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
@@ -691,14 +698,15 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					sellQty = symbolQty3
 				}
 				if(!tradingsymbol) return;
+				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				
 				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 				let numFreezes = parseInt(sellQty / freezeLimit);
 				let remQty = sellQty % freezeLimit;
 				
-				for (let i = 1; i<=numFreezes; i++) {
+				for (let j = 1; j<=numFreezes; j++) {  
 					let finalKc = kc;
-					if(i > 15) {
+					if(j > 15) {
 						finalKc = kc2
 					}
 					exitAtMarketPrice(tradingsymbol, freezeLimit, finalKc) 
@@ -707,7 +715,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					exitAtMarketPrice(tradingsymbol, remQty, kc)
 				}
 
-				await new Promise(resolve => setTimeout(resolve, 500));
+				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
 
 			}
 			
@@ -725,11 +733,12 @@ async function getPnl(ticks) {
 	let pos= await kc.getPositions();
 
 	let maxLossSymbol; //store the maximum loss  trading symbol, We will exit that first and then the remaining symbols
-	let maxLoss = 0;
+	let maxLoss = 100000000;
 	let symbol1, symbol2, symbol3, symbol4;
 	let maxLossQty = 0, symbolQty1 = 0, symbolQty2 = 0, symbolQty3 = 0, symbolQty4=0;
 	pos["net"].forEach(p => { 
 		
+		if(!getUnderlying(p.tradingsymbol)) return
 		if(p.quantity == 0) {
 			pnl = pnl + (p.sell_value - p.buy_value)
 		} else {
@@ -799,7 +808,7 @@ function getTicker(ticks, instrument_token) {
 }
 
 
-async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=false) {
+async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=0) {
 	
 	let exchange = "NFO";
 	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
@@ -818,9 +827,10 @@ async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=false
 		})
 	} catch(e) {
 		console.log(e)
-		if(!ignoreCatch) { // if exception due to rate limit, try once again after 500 ms
-			await new Promise(resolve => setTimeout(resolve, 500));
-			exitAtMarketPrice(tradingsymbol, qty, finalKc, true)
+		if(ignoreCatch <= 3) { // if exception due to rate limit, try once again after 500 ms. Do this only 3 times
+			//console.log("Trial Number " + ignoreCatch)
+			//await new Promise(resolve => setTimeout(resolve, 500));
+			//exitAtMarketPrice(tradingsymbol, qty, finalKc, ignoreCatch + 1)
 		}
 		
 	}
@@ -923,8 +933,8 @@ async function subscribe() {
 	//var items = [260105, 256265, 257801, 265, 288009, 274441]; 
    
 	//uncomment to subscribe
-	//ticker.subscribe(subscribeItems);
-	//ticker.setMode(ticker.modeFull, subscribeItems);
+	ticker.subscribe(subscribeItems);
+	ticker.setMode(ticker.modeFull, subscribeItems);
 }
 
 
@@ -947,7 +957,27 @@ app.get('/token', async (req, res) => {
 	await getToken();
 	console.log("Now Getting Token 2")
 	await getToken(true);
-	res.send("Success!!")
+	peakProfit = 0;
+	pnlLogic = true;
+	curPlatformLoss = maxPlatformLoss;
+	res.send("Success!")
+});
+
+app.get('/status', async (req, res) => {
+	
+	res.send({
+		"Pnl Logic": pnlLogic,
+		"PeakProfit": peakProfit,
+		"PlatformStopLoss": curPlatformLoss,
+		"pnl": pnlObject
+	})
+});
+
+app.get('/logic', async (req, res) => {
+	
+	pnlLogic = !pnlLogic;
+	res.send("PNL Logic = " + pnlLogic)
+	
 });
 
 app.post('/sellHedges', urlencodedParser, async (req, res) => {
@@ -1542,7 +1572,7 @@ function getUnderlying(tradingsymbol) {
 	}
 	else if(tradingsymbol.startsWith("BANKEX")) {
 		return "BANKEX"
-	}
+	} else return ""
 
 }
 
@@ -1790,6 +1820,35 @@ function calculateTradingSymbol(strike, inst, cepe) {
 		return listBFO[0]["tradingsymbol"];
 	}
 	console.log("No expiry found today")
+	
+}
+
+
+function getUnderlyingFromInst(instrument_token) {
+
+	
+	let list = instList.filter(i => { 
+		if(i.instrument_token == instrument_token) {
+			return i;
+		}
+	})
+
+	if(list.length > 0 && list[0]["tradingsymbol"]) {
+		return map[getUnderlying(list[0]["tradingsymbol"])];
+	}
+	
+	
+
+	list = instListBFO.filter(i => {
+		if(i.instrument_token == instrument_token) {
+			return i;
+		}
+	})
+
+	if(list.length > 0 && list[0]["tradingsymbol"]) {
+		return map[getUnderlying(list[0]["tradingsymbol"])];
+	}
+
 	
 }
 
