@@ -957,7 +957,8 @@ app.get('/token', async (req, res) => {
 	await getToken();
 	console.log("Now Getting Token 2")
 	await getToken(true);
-	initializeTicker();
+	if(!ticker) initializeTicker();
+	
 	peakProfit = 0;
 	pnlLogic = true;
 	curPlatformLoss = maxPlatformLoss;
