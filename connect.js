@@ -960,7 +960,6 @@ app.get('/token', async (req, res) => {
 	if(!ticker) initializeTicker();
 	
 	peakProfit = 0;
-	pnlLogic = true;
 	curPlatformLoss = maxPlatformLoss;
 	res.send("Success!")
 });
