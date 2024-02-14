@@ -90,6 +90,19 @@ $(document).ready(function(){
         }
       })*/
 
+      $("#button111").click(function(){
+      
+        
+      let peakProfit = $("#peakProfit").val();
+      
+      let maxPlatformLoss = $("#maxPlatformLoss").val();
+      
+      $.post(`${url}globalValues`, {"peakProfit": peakProfit,  "maxPlatformLoss": maxPlatformLoss}, function(response){
+         
+          alert(response)
+      })
+  
+  });
   
       $("#button1").click(function(){
       
@@ -296,6 +309,12 @@ input {
 <br/><br/>
 <div id="strikes"></div>
 <br>
+<div class ="segment">
+  <label> Peak Profit</label> <input type="text" id="peakProfit" inputmode="numeric"> 
+  <label> Max Platform Loss </label> <input type="text" id="maxPlatformLoss" inputmode="numeric"> 
+  <button type="button" id="button111" style="margin-top:15px">Submit</button>
+  <br/>
+</div>
 <div class ="segment">
 <label> Sell Qty </label> <input type="text" id="sellQtyPercent" inputmode="numeric"> 
 <label> Sell Price </label> <input type="text" id="sellPrice" inputmode="numeric"> 

@@ -4,7 +4,7 @@ const puppeteer = require('puppeteer');
 const totp = require("totp-generator");
 const fs = require("fs");
 const token = totp("EBMIMBQH3RQV6NF5445GYYRO3QZH4TGC");
-const moment = require("moment");
+
 const express = require('express')
 var bodyParser = require('body-parser')
 const cors = require('cors');
@@ -18,9 +18,12 @@ const AsyncLock = require('async-lock');
 const lock = new AsyncLock();
 const { Mutex } = require('async-mutex');
 const functionMutex = new Mutex();
+const moment = require('moment-timezone');
 
 
 const wss = new WebSocket.Server({ noServer: true });
+const startTime = moment('9:15 AM', 'h:mm A');
+const endTime = moment('3:30 PM', 'h:mm A');
 
 const app = express()
 const port = 3000
@@ -91,7 +94,7 @@ let stoplossLevels = {};
 let currentTicks;
 let pnlObject = {};
 let peakProfit = 0;
-let pnlLogic = false;
+let pnlLogic = true;
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -228,6 +231,8 @@ let count = 0;
 
 async function onTicks(ticks) {
 	console.log("On Ticks")
+	
+	
 	currentTicks = ticks;
 	let pos= await kc.getPositions();
 	let sellPos = []
@@ -265,6 +270,10 @@ async function onTicks(ticks) {
 			//await exitAtMarket(stoplossLevels[map1[t.instrument_token]]["tradingsymbol"]);
 		}
 	})*/
+	if(!moment().tz("Asia/Kolkata").isBetween(startTime, endTime)) {
+		console.log("Outside Of Market Timings")
+		return;
+	}
 	
 	await pnlExitLogic(ticks)
 
@@ -665,6 +674,8 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	if(peakProfit > 0) {
 		let steps = parseInt(peakProfit / trailSL);
 		curPlatformLoss = maxPlatformLoss - (steps * trailSL)
+	} else {
+		curPlatformLoss = maxPlatformLoss;
 	}
 	
 
@@ -969,7 +980,8 @@ app.get('/status', async (req, res) => {
 	res.send({
 		"Pnl Logic": pnlLogic,
 		"PeakProfit": peakProfit,
-		"PlatformStopLoss": curPlatformLoss,
+		"maxPLatformLoss": maxPlatformLoss,
+		"CurrentPlatformStopLoss": curPlatformLoss,
 		"pnl": pnlObject
 	})
 });
@@ -978,6 +990,21 @@ app.get('/logic', async (req, res) => {
 	
 	pnlLogic = !pnlLogic;
 	res.send("PNL Logic = " + pnlLogic)
+	
+});
+
+app.post('/globalValues', urlencodedParser, async (req, res) => {
+	
+	if(req.body.peakProfit) {
+		peakProfit = req.body.peakProfit;
+		
+	}
+	if(req.body.maxPlatformLoss) {
+		maxPlatformLoss = req.body.maxPlatformLoss;
+	}
+
+	res.send("Success!")
+	
 	
 });
 
