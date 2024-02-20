@@ -727,9 +727,9 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				if(!tradingsymbol) return;
 				//if exit level logic then see whether CE should be exited or PE
 
-				let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
+				//let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
 				
-				if(exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) continue;
+				//if(exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) continue;
 
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				
