@@ -94,7 +94,7 @@ let stoplossLevels = {};
 let currentTicks;
 let pnlObject = {};
 let peakProfit = 0;
-let pnlLogic = true;
+let pnlLogic = false;
 let exitLevelCE = 0, exitLevelPE=0;
 
 function initializeTicker() {
@@ -690,19 +690,20 @@ async function pnlExitLogic(ticks, forceExit = false) {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
 		let exit = (pnl * -1) >= curPlatformLoss;
 		let exitLevelLogicCEPE;
+		let levelLogic = false;
 		
 		if(exitLevelCE > 0 || exitLevelPE > 0) {
 			
 			
 			let r = exitLevelLogic(ticks);
-			exit = r["result"];
+			levelLogic = r["result"];
 			exitLevelLogicCEPE = r["cepe"];
 			console.log("Exit Level logic " + exit + " " + exitLevelLogicCEPE)
 		}
 
 		
 
-		if(pnlLogic && (exit || forceExit)) {
+		if(levelLogic || (pnlLogic && exit)) {
 			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
