@@ -95,6 +95,7 @@ let currentTicks;
 let pnlObject = {};
 let peakProfit = 0;
 let pnlLogic = true;
+let exitLevelCE = 0, exitLevelPE=0;
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -240,6 +241,8 @@ async function onTicks(ticks) {
 
 		if(p.quantity != 0) {
 			sellPos.push(p.instrument_token)
+			//also push the underlying instrument for level exit logic
+			sellPos.push(map[getUnderlying(p.tradingsymbol)])
 		}
 
 	})
@@ -686,6 +689,18 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
 		let exit = (pnl * -1) >= curPlatformLoss;
+		let exitLevelLogicCEPE;
+		
+		if(exitLevelCE > 0 || exitLevelPE > 0) {
+			
+			
+			let r = exitLevelLogic(ticks);
+			exit = r["result"];
+			exitLevelLogicCEPE = r["cepe"];
+			console.log("Exit Level logic " + exit + " " + exitLevelLogicCEPE)
+		}
+
+		
 
 		if(pnlLogic && (exit || forceExit)) {
 			
@@ -709,6 +724,12 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					sellQty = symbolQty3
 				}
 				if(!tradingsymbol) return;
+				//if exit level logic then see whether CE should be exited or PE
+
+				let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
+				
+				if(exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) continue;
+
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				
 				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
@@ -739,9 +760,35 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	}
 }
 
+
+function exitLevelLogic(ticks) {
+	let result=false;
+	let cepe = "";
+	ticks.forEach(t => {
+		
+		if(exitLevelPE > 0 && t.last_price < exitLevelPE &&  allTokens.includes(Number(t.instrument_token))) {
+			result=true
+			cepe = 'PE';
+			return
+			
+		}
+
+		if(exitLevelCE > 0 && t.last_price > exitLevelCE &&  allTokens.includes(Number(t.instrument_token))) {
+			result=true
+			cepe = 'CE';
+			return
+			
+		}
+		
+	})
+	
+	return {"cepe":cepe, "result": result };
+}
+
 async function getPnl(ticks) {
 	let pnl = 0;
 	let pos= await kc.getPositions();
+	let symbolMap = {}
 
 	let maxLossSymbol; //store the maximum loss  trading symbol, We will exit that first and then the remaining symbols
 	let maxLoss = 100000000;
@@ -761,6 +808,7 @@ async function getPnl(ticks) {
 			pnl = pnl + symbolPnl
 			
 			if(p.quantity < 0) {
+				symbolMap[p.instrument_token] = p.tradingsymbol;
 				if(symbolPnl < maxLoss) {
 					maxLoss = symbolPnl;
 					maxLossSymbol = p.tradingsymbol;
@@ -803,7 +851,7 @@ async function getPnl(ticks) {
 	}
 
 	return {"pnl" : pnl, "maxLossSymbol": maxLossSymbol, "symbol1": symbol1, "symbol2": symbol2, "symbol3": symbol3, 
-	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3};
+	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3, "symbolMap": symbolMap};
 }
 
 function getTicker(ticks, instrument_token) {
@@ -940,6 +988,7 @@ function arraysEqual(arr1, arr2) {
 }
 
 let subscribeItems = [260105] //banknifty
+let allTokens = [260105, 256265, 257801, 265, 288009, 274441];
 async function subscribe() {
 	//var items = [260105, 256265, 257801, 265, 288009, 274441]; 
    
@@ -978,6 +1027,8 @@ app.get('/token', async (req, res) => {
 app.get('/status', async (req, res) => {
 	
 	res.send({
+		"Exit Level CE": exitLevelCE,
+		"Exit Level PE": exitLevelPE,
 		"Pnl Logic": pnlLogic,
 		"PeakProfit": peakProfit,
 		"maxPLatformLoss": maxPlatformLoss,
@@ -1001,6 +1052,14 @@ app.post('/globalValues', urlencodedParser, async (req, res) => {
 	}
 	if(req.body.maxPlatformLoss) {
 		maxPlatformLoss = req.body.maxPlatformLoss;
+	}
+
+	if(req.body.exitLevelCE) {
+		exitLevelCE = req.body.exitLevelCE;
+
+	} 
+	if(req.body.exitLevelPE) {
+		exitLevelPE = req.body.exitLevelPE;
 	}
 
 	res.send("Success!")

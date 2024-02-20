@@ -96,8 +96,10 @@ $(document).ready(function(){
       let peakProfit = $("#peakProfit").val();
       
       let maxPlatformLoss = $("#maxPlatformLoss").val();
+      let exitLevelCE = $("#exitLevelCE").val();
+      let exitLevelPE = $("#exitLevelPE").val();
       
-      $.post(`${url}globalValues`, {"peakProfit": peakProfit,  "maxPlatformLoss": maxPlatformLoss}, function(response){
+      $.post(`${url}globalValues`, {"peakProfit": peakProfit,  "maxPlatformLoss": maxPlatformLoss, "exitLevelCE": exitLevelCE, "exitLevelPE": exitLevelPE }, function(response){
          
           alert(response)
       })
@@ -312,6 +314,8 @@ input {
 <div class ="segment">
   <label> Peak Profit</label> <input type="text" id="peakProfit" inputmode="numeric"> 
   <label> Max Platform Loss </label> <input type="text" id="maxPlatformLoss" inputmode="numeric"> 
+  <label> Exit Level PE </label> <input type="text" id="exitLevelPE" inputmode="numeric"> 
+  <label> Exit Level CE </label> <input type="text" id="exitLevelCE" inputmode="numeric"> 
   <button type="button" id="button111" style="margin-top:15px">Submit</button>
   <br/>
 </div>
