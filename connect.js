@@ -704,6 +704,9 @@ async function pnlExitLogic(ticks, forceExit = false) {
 		
 
 		if(levelLogic || (pnlLogic && exit)) {
+
+			exitLevelCE = 0; // reset to 0 once exit is happening
+			exitLevelPE = 0;
 			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
