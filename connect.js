@@ -273,10 +273,10 @@ async function onTicks(ticks) {
 			//await exitAtMarket(stoplossLevels[map1[t.instrument_token]]["tradingsymbol"]);
 		}
 	})*/
-	if(!moment().tz("Asia/Kolkata").isBetween(startTime, endTime)) {
-		console.log("Outside Of Market Timings")
-		return;
-	}
+	//if(!moment().tz("Asia/Kolkata").isBetween(startTime, endTime)) {
+	//	console.log("Outside Of Market Timings")
+	//	return;
+	//}
 	
 	await pnlExitLogic(ticks)
 
