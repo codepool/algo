@@ -3,7 +3,7 @@ var KiteTicker = require("kiteconnect").KiteTicker;
 const puppeteer = require('puppeteer');
 const totp = require("totp-generator");
 const fs = require("fs");
-const token = totp("EBMIMBQH3RQV6NF5445GYYRO3QZH4TGC");
+const token = totp("CQ233UTRFVJY2ZNJVZNZYP6BYQDHHRJU");
 
 const express = require('express')
 var bodyParser = require('body-parser')
@@ -144,9 +144,9 @@ function sendEventToClients(eventData) {
 
 
 app.server = app.listen(port, '0.0.0.0',async () => {
-	await getToken();
+	await getToken(false, "");
 	console.log("Now Getting Token 2")
-	await getToken(true);
+	await getToken(true, "");
 	
 	console.log("Getting All Instruments in NFO")
 	instList = await kc.getInstruments("NFO");
@@ -167,7 +167,7 @@ app.server.on('upgrade', (request, socket, head) => {
     });
 });
 
-async function getToken(secondToken = false) {
+async function getToken(secondToken = false, requestToken) {
 	
     let fileName = "token";
 	let finalKc = kc;
@@ -186,23 +186,29 @@ async function getToken(secondToken = false) {
 		await finalKc.getProfile()
 
 	} catch {
+		let request_token;
 		try {
 
-		
-    console.log("getting new token")
-	const browser = await puppeteer.launch();
-	const page = await browser.newPage();
-	await page.goto(`https://kite.zerodha.com/connect/login?v=3&api_key=${finalApiKey}`, {waitUntil: "domcontentloaded"});
-	await page.waitForTimeout(1000);
-	await page.type('#userid', 'YC2151');
-	await page.type('#password', 'aerial@258G');
-	await page.click('button[type="submit"]');
-	await page.waitForTimeout(1000);
-	await page.type('input', token);
-	 await page.click('button[type="submit"]');
-	 await page.waitForNavigation();
-	let request_token = new URL(page.url()).searchParams.get('request_token');
-	await browser.close();
+  	  console.log("getting new token")
+	
+	if(requestToken) {
+		request_token = requestToken
+	} else {
+		const browser = await puppeteer.launch();
+		const page = await browser.newPage();
+		await page.goto(`https://kite.zerodha.com/connect/login?v=3&api_key=${finalApiKey}`, {waitUntil: "domcontentloaded"});
+		await page.waitForTimeout(1000);
+		await page.type('#userid', 'YC2151');
+		await page.type('#password', 'aerial@258G');
+		await page.click('button[type="submit"]');
+		await page.waitForTimeout(1000);
+		await page.type('input', token);
+		await page.click('button[type="submit"]');
+		await page.waitForNavigation();
+		request_token = new URL(page.url()).searchParams.get('request_token');
+		await browser.close();
+	}
+	
 	console.log("Got request token !!")
 	await finalKc.generateSession(request_token, finalSecret)
 	.then(function(response) {
@@ -670,6 +676,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	let symbolQty1 = p["symbolQty1"]
 	let symbolQty2 = p["symbolQty2"]
 	let symbolQty3 = p["symbolQty3"]
+	let onlyCEorPE = p["onlyCEorPE"]
 	
 	if(pnl > peakProfit) {
 		peakProfit = pnl;
@@ -697,7 +704,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 			
 			let r = exitLevelLogic(ticks);
 			levelLogic = r["result"];
-			exitLevelLogicCEPE = r["cepe"];
+			exitLevelLogicCEPE = r["cepe"]; //outputs which level has brokern CE or PE
 			console.log("Exit Level logic " + exit + " " + exitLevelLogicCEPE)
 		}
 
@@ -705,8 +712,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 		if(levelLogic || (pnlLogic && exit)) {
 
-			exitLevelCE = 0; // reset to 0 once exit is happening
-			exitLevelPE = 0;
+			
 			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
@@ -730,11 +736,14 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				if(!tradingsymbol) return;
 				//if exit level logic then see whether CE should be exited or PE
 
-				//let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
+				let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
 				
-				//if(exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) continue;
 
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
+				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
+				if(onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
+				exitLevelCE = 0; // reset to 0 once exit is happening
+				exitLevelPE = 0;
 				
 				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 				let numFreezes = parseInt(sellQty / freezeLimit);
@@ -798,6 +807,7 @@ async function getPnl(ticks) {
 	let maxLoss = 100000000;
 	let symbol1, symbol2, symbol3, symbol4;
 	let maxLossQty = 0, symbolQty1 = 0, symbolQty2 = 0, symbolQty3 = 0, symbolQty4=0;
+	let ce = false, pe=false;
 	pos["net"].forEach(p => { 
 		
 		if(!getUnderlying(p.tradingsymbol)) return
@@ -812,6 +822,13 @@ async function getPnl(ticks) {
 			pnl = pnl + symbolPnl
 			
 			if(p.quantity < 0) {
+				let cepe = p.tradingsymbol.substring(p.tradingsymbol.length - 2)
+				if(cepe=='CE') {
+					ce = true
+				}
+				if(cepe=='PE') {
+					pe=true;
+				}
 				symbolMap[p.instrument_token] = p.tradingsymbol;
 				if(symbolPnl < maxLoss) {
 					maxLoss = symbolPnl;
@@ -854,8 +871,14 @@ async function getPnl(ticks) {
 		symbolQty3 = symbolQty4;
 	}
 
+	let onlyCEorPE = false;
+	if(ce && pe) {
+		onlyCEorPE = false;
+	} else if (ce || pe) {
+		onlyCEorPE = true;
+	}
 	return {"pnl" : pnl, "maxLossSymbol": maxLossSymbol, "symbol1": symbol1, "symbol2": symbol2, "symbol3": symbol3, 
-	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3, "symbolMap": symbolMap};
+	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3, "symbolMap": symbolMap, "onlyCEorPE": onlyCEorPE};
 }
 
 function getTicker(ticks, instrument_token) {
@@ -873,6 +896,7 @@ function getTicker(ticks, instrument_token) {
 
 async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=0) {
 	
+	console.log("Exiting " + tradingsymbol + " Qty " + qty)
 	let exchange = "NFO";
 	if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
 		exchange = "BFO"
@@ -1018,9 +1042,9 @@ function onClose(reason) {
 app.get('/token', async (req, res) => {
 	
 	//get Token if not present
-	await getToken();
+	await getToken(false, ""); // second param is request token
 	console.log("Now Getting Token 2")
-	await getToken(true);
+	await getToken(true, "");
 	if(!ticker) initializeTicker();
 	
 	peakProfit = 0;
@@ -1591,6 +1615,9 @@ async function getSingleSellPos() {
 		return tradingsymbol;
 	} else return "";
 }
+
+
+
 async function getSingleHedgePos() {
 	let num = 0;
 	let positions = await kc.getPositions();
