@@ -664,9 +664,15 @@ async function autoHedgeBuyOrder(tradingsymbol, quantity, lastPrice) {
 
 async function pnlExitLogic(ticks, forceExit = false) {
 
+	let p;
+	try {
+		 p = await getPnl(ticks);
+	} catch(e) {
+		console.log("Error in Getting pnl");
+		console.log(e);
+	}
 	
-	let p = await getPnl(ticks);
-	
+	if(!p) return;
 	let pnl = p["pnl"] ? Number(p["pnl"]) : 0;
 	let maxLossSymbol = p["maxLossSymbol"]
 	let symbol1 = p["symbol1"]
