@@ -3,7 +3,7 @@ var KiteTicker = require("kiteconnect").KiteTicker;
 const puppeteer = require('puppeteer');
 const totp = require("totp-generator");
 const fs = require("fs");
-const token = totp("CQ233UTRFVJY2ZNJVZNZYP6BYQDHHRJU");
+const token = totp("6XOVLZ3UHR6ZREHBUEGQLWYAWTVLPYWG");
 
 const express = require('express')
 var bodyParser = require('body-parser')
@@ -43,6 +43,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 var api_key = "m3tm90xcurfqs6ed", secret = "neitcljdwghnhw9orky6bhmx9mqc6rko";
 let api_key2 = "h57lwjsqf83r2v4k", secret2 = "cm6ciqf9zry69lfyxznwgp8smqnfdrxq";
+
+//https://kite.zerodha.com/connect/login?v=3&api_key=m3tm90xcurfqs6ed
+//https://kite.zerodha.com/connect/login?v=3&api_key=h57lwjsqf83r2v4k
 
 var options = {
 	"api_key": api_key,
