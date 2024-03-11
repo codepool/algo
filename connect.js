@@ -147,6 +147,7 @@ function sendEventToClients(eventData) {
 
 
 app.server = app.listen(port, '0.0.0.0',async () => {
+	console.log("Getting Token 1")
 	await getToken(false, "");
 	console.log("Now Getting Token 2")
 	await getToken(true, "");
@@ -242,52 +243,59 @@ let count = 0;
 async function onTicks(ticks) {
 	console.log("On Ticks")
 	
+	try {
+		currentTicks = ticks;
+		let pos= await kc.getPositions();
+		let sellPos = []
+		pos["net"].forEach(p => { 
 	
-	currentTicks = ticks;
-	let pos= await kc.getPositions();
-	let sellPos = []
-	pos["net"].forEach(p => { 
-
-		if(p.quantity != 0) {
-			sellPos.push(p.instrument_token)
-			//also push the underlying instrument for level exit logic
-			sellPos.push(map[getUnderlying(p.tradingsymbol)])
+			if(p.quantity != 0 && getUnderlying(p.tradingsymbol)) {
+				sellPos.push(p.instrument_token)
+				//also push the underlying instrument for level exit logic
+				sellPos.push(map[getUnderlying(p.tradingsymbol)])
+			}
+	
+		})
+		if(sellPos.length == 0) {
+			sellPos = [map["BANKNIFTY"]] //default subscribe bank nifty
 		}
-
-	})
-	if(sellPos.length == 0) {
-		sellPos = [map["BANKNIFTY"]] //default subscribe bank nifty
+		
+		
+		ticker.unsubscribe(subscribeItems)
+		ticker.subscribe(sellPos);
+		subscribeItems = sellPos;
+		if(ticks[0]["instrument_token"] == map["BANKNIFTY"]) return;
+		
+		
+		//console.log("Received Tick Length " + ticks.length)
+		//console.log(ticks)
+		//check if the underlying hasnt crossed stoploss, if yes then exit at market price. Auto determine pe/ce & instrument
+	
+		/*ticks.forEach(async t => {
+			
+			if(!stoplossLevels[map1[t.instrument_token]] || !stoplossLevels[map1[t.instrument_token]]["stoploss"]) return
+			
+			if((stoplossLevels[map1[t.instrument_token]]["cepe"] == "CE" && t.last_price > stoplossLevels[map1[t.instrument_token]]["stoploss"])
+			|| ( stoplossLevels[map1[t.instrument_token]]["cepe"] == "PE" && t.last_price < stoplossLevels[map1[t.instrument_token]]["stoploss"])
+			) {
+				console.log("stop loss breached")
+				
+				//await exitAtMarket(stoplossLevels[map1[t.instrument_token]]["tradingsymbol"]);
+			}
+		})*/
+		//if(!moment().tz("Asia/Kolkata").isBetween(startTime, endTime)) {
+		//	console.log("Outside Of Market Timings")
+		//	return;
+		//}
+		
+		
+		await pnlExitLogic(ticks)
+	} catch(e) {
+		console.log("Error in on Ticks");
+		console.log(e);
 	}
 	
-	ticker.unsubscribe(subscribeItems)
-	ticker.subscribe(sellPos);
-	subscribeItems = sellPos;
 	
-	if(ticks[0]["instrument_token"] == map["BANKNIFTY"]) return;
-	
-	
-    //console.log("Received Tick Length " + ticks.length)
-	//console.log(ticks)
-	//check if the underlying hasnt crossed stoploss, if yes then exit at market price. Auto determine pe/ce & instrument
-
-	/*ticks.forEach(async t => {
-		
-		if(!stoplossLevels[map1[t.instrument_token]] || !stoplossLevels[map1[t.instrument_token]]["stoploss"]) return
-		
-		if((stoplossLevels[map1[t.instrument_token]]["cepe"] == "CE" && t.last_price > stoplossLevels[map1[t.instrument_token]]["stoploss"])
-		|| ( stoplossLevels[map1[t.instrument_token]]["cepe"] == "PE" && t.last_price < stoplossLevels[map1[t.instrument_token]]["stoploss"])
-		) {
-			console.log("stop loss breached")
-			
-			//await exitAtMarket(stoplossLevels[map1[t.instrument_token]]["tradingsymbol"]);
-		}
-	})*/
-	//if(!moment().tz("Asia/Kolkata").isBetween(startTime, endTime)) {
-	//	console.log("Outside Of Market Timings")
-	//	return;
-	//}
-	
-	await pnlExitLogic(ticks)
 
 	
 	
@@ -667,15 +675,8 @@ async function autoHedgeBuyOrder(tradingsymbol, quantity, lastPrice) {
 
 async function pnlExitLogic(ticks, forceExit = false) {
 
-	let p;
-	try {
-		 p = await getPnl(ticks);
-	} catch(e) {
-		console.log("Error in Getting pnl");
-		console.log(e);
-	}
-	
-	if(!p) return;
+	let p =  await getPnl(ticks);
+
 	let pnl = p["pnl"] ? Number(p["pnl"]) : 0;
 	let maxLossSymbol = p["maxLossSymbol"]
 	let symbol1 = p["symbol1"]
@@ -1051,6 +1052,7 @@ function onClose(reason) {
 app.get('/token', async (req, res) => {
 	
 	//get Token if not present
+	console.log("Getting Token 1")
 	await getToken(false, ""); // second param is request token
 	console.log("Now Getting Token 2")
 	await getToken(true, "");
