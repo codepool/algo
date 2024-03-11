@@ -686,6 +686,11 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	let symbolQty1 = p["symbolQty1"]
 	let symbolQty2 = p["symbolQty2"]
 	let symbolQty3 = p["symbolQty3"]
+	let maxLossPrice = p["maxLossPrice"]
+	let symbolPrice1 = p["symbolPrice1"]
+	let symbolPrice2 = p["symbolPrice2"]
+	let symbolPrice3 = p["symbolPrice3"]
+	
 	let onlyCEorPE = p["onlyCEorPE"]
 	
 	if(pnl > peakProfit) {
@@ -726,22 +731,26 @@ async function pnlExitLogic(ticks, forceExit = false) {
 			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
-				let tradingsymbol, sellQty;
+				let tradingsymbol, sellQty, sellPrice;
 				if(i == 1) {
 					tradingsymbol = maxLossSymbol
 					sellQty = maxLossQty;
+					sellPrice = maxLossPrice;
 				}
 				if(i == 2) {
 					tradingsymbol = symbol1;
 					sellQty = symbolQty1
+					sellPrice = symbolPrice1;
 				}
 				if(i == 3) {
 					tradingsymbol = symbol2;
 					sellQty = symbolQty2
+					sellPrice = symbolPrice2;
 				}
 				if(i==4) {
 					tradingsymbol = symbol3;
 					sellQty = symbolQty3
+					sellPrice = symbolPrice3;
 				}
 				if(!tradingsymbol) return;
 				//if exit level logic then see whether CE should be exited or PE
@@ -764,10 +773,10 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					if(j > 15) {
 						finalKc = kc2
 					}
-					exitAtMarketPrice(tradingsymbol, freezeLimit, finalKc) 
+					exitAtMarketPrice(tradingsymbol, freezeLimit, sellPrice, finalKc) 
 				}
 				if(remQty > 0) {
-					exitAtMarketPrice(tradingsymbol, remQty, kc)
+					exitAtMarketPrice(tradingsymbol, remQty, sellPrice, kc)
 				}
 
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
@@ -817,6 +826,7 @@ async function getPnl(ticks) {
 	let maxLoss = 100000000;
 	let symbol1, symbol2, symbol3, symbol4;
 	let maxLossQty = 0, symbolQty1 = 0, symbolQty2 = 0, symbolQty3 = 0, symbolQty4=0;
+	let maxLossPrice = 0, symbolPrice1 = 0, symbolPrice2 = 0, symbolPrice3 = 0, symbolPrice4=0;
 	let ce = false, pe=false;
 	pos["net"].forEach(p => { 
 		
@@ -844,19 +854,24 @@ async function getPnl(ticks) {
 					maxLoss = symbolPnl;
 					maxLossSymbol = p.tradingsymbol;
 					maxLossQty = p.quantity * -1;
+					maxLossPrice = last_price;
 				}
 				if(!symbol1) {
 					symbol1 = p.tradingsymbol;
 					symbolQty1 = p.quantity * -1
+					symbolPrice1 = last_price
 				} else if(!symbol2) {
 					symbol2 = p.tradingsymbol;
 					symbolQty2 = p.quantity * -1
+					symbolPrice2 = last_price
 				} else if(!symbol3) {
 					symbol3 = p.tradingsymbol;
 					symbolQty3 = p.quantity * -1
+					symbolPrice3 = last_price
 				} else if(!symbol4) {
 					symbol4 = p.tradingsymbol;
 					symbolQty4 = p.quantity * -1
+					symbolPrice4 = last_price
 				}
 				
 			}
@@ -871,14 +886,20 @@ async function getPnl(ticks) {
 		symbolQty1 = symbolQty2;
 		symbolQty2 = symbolQty3;
 		symbolQty3 = symbolQty4;
+		symbolPrice1 = symbolPrice2;
+		symbolPrice2 = symbolPrice3;
+		symbolPrice3 = symbolPrice4;
 	} else if(symbol2 = maxLossSymbol) {
 		symbol2 = symbol3;
 		symbol3 = symbol4;
 		symbolQty2 = symbolQty3;
 		symbolQty3 = symbolQty4
+		symbolPrice2 = symbolPrice3;
+		symbolPrice3 = symbolPrice4;
 	} else if(symbol3 = maxLossSymbol) {
 		symbol3 = symbol4;
 		symbolQty3 = symbolQty4;
+		symbolPrice3 = symbolPrice4;
 	}
 
 	let onlyCEorPE = false;
@@ -888,7 +909,9 @@ async function getPnl(ticks) {
 		onlyCEorPE = true;
 	}
 	return {"pnl" : pnl, "maxLossSymbol": maxLossSymbol, "symbol1": symbol1, "symbol2": symbol2, "symbol3": symbol3, 
-	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3, "symbolMap": symbolMap, "onlyCEorPE": onlyCEorPE};
+	"maxLossQty": maxLossQty, "symbolQty1": symbolQty1, "symbolQty2": symbolQty2, "symbolQty3": symbolQty3, "symbolMap": symbolMap, "onlyCEorPE": onlyCEorPE,
+	"maxLossPrice": maxLossPrice, "symbolPrice1": symbolPrice1, "symbolPrice2": symbolPrice2, "symbolPrice3": symbolPrice3 
+	};
 }
 
 function getTicker(ticks, instrument_token) {
@@ -904,7 +927,7 @@ function getTicker(ticks, instrument_token) {
 }
 
 
-async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=0) {
+async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, ignoreCatch=0) {
 	
 	console.log("Exiting " + tradingsymbol + " Qty " + qty)
 	let exchange = "NFO";
@@ -923,7 +946,26 @@ async function exitAtMarketPrice( tradingsymbol, qty, finalKc, ignoreCatch=0) {
 
 		})
 	} catch(e) {
+		//sensex, bankex can get market out of range error, try with limit order +10
 		console.log(e)
+		
+		if(e.message && e.message.includes("range")) {
+			
+			await finalKc.placeOrder("regular", {
+				"exchange": exchange,
+				"tradingsymbol": tradingsymbol,
+				"transaction_type": "BUY",
+				"quantity": qty,
+				"product": "NRML",
+				"order_type": "LIMIT",
+				"price": price + 10,
+				"validity": "DAY",
+	
+			})
+			
+		}
+		
+		
 		if(ignoreCatch <= 3) { // if exception due to rate limit, try once again after 500 ms. Do this only 3 times
 			//console.log("Trial Number " + ignoreCatch)
 			//await new Promise(resolve => setTimeout(resolve, 500));
