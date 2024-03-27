@@ -264,7 +264,10 @@ async function onTicks(ticks) {
 		ticker.unsubscribe(subscribeItems)
 		ticker.subscribe(sellPos);
 		subscribeItems = sellPos;
-		if(ticks[0]["instrument_token"] == map["BANKNIFTY"]) return;
+		if(ticks[0]["instrument_token"] == map["BANKNIFTY"]) {
+			console.log("No open short positions.")
+			return;
+		}
 		
 		
 		//console.log("Received Tick Length " + ticks.length)
