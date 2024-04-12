@@ -88,7 +88,7 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 250000;
+let maxPlatformLoss = 600000;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
@@ -713,7 +713,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
-		let exit = (pnl * -1) >= curPlatformLoss;
+		let exit = (pnl * -1) >= maxPlatformLoss;
 		let exitLevelLogicCEPE;
 		let levelLogic = false;
 		
@@ -728,12 +728,13 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 		
 
-		if(levelLogic || (pnlLogic && exit)) {
+		if(levelLogic || (exit)) {
 
 			
 			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
+				//exit the max loss symbol first
 				let tradingsymbol, sellQty, sellPrice;
 				if(i == 1) {
 					tradingsymbol = maxLossSymbol
@@ -763,7 +764,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
-				if(onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
+				if(!exit && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
 				exitLevelCE = 0; // reset to 0 once exit is happening
 				exitLevelPE = 0;
 				
