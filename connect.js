@@ -31,6 +31,7 @@ var jsonParser = bodyParser.json()
 var urlencodedParser = bodyParser.urlencoded({ extended: false });
 var ticker;
 
+
 app.use(cors({
     origin: '*'
 }));  
@@ -155,9 +156,9 @@ app.server = app.listen(port, '0.0.0.0',async () => {
 	console.log("Getting All Instruments in NFO")
 	instList = await kc.getInstruments("NFO");
 	instListBFO = await kc.getInstruments("BFO");
-	//todayExpiryList = getTodayExpiryInst();
-	
-	//initGlobal();
+	peakProfit = 0;
+	curPlatformLoss = maxPlatformLoss;
+	if(!ticker) initializeTicker();
 	console.log(`app listening on port ${port}`)
 	
 	
@@ -723,7 +724,8 @@ async function pnlExitLogic(ticks, forceExit = false) {
 			let r = exitLevelLogic(ticks);
 			levelLogic = r["result"];
 			exitLevelLogicCEPE = r["cepe"]; //outputs which level has brokern CE or PE
-			console.log("Exit Level logic " + exit + " " + exitLevelLogicCEPE)
+			console.log("PNL Exit Logic " + exit)
+			console.log("Level Exit Logic " + levelLogic + " " + exitLevelLogicCEPE)
 		}
 
 		
@@ -3235,5 +3237,7 @@ async function basketMargins(tradingsymbolSell, tradingsymbolBuy, qty) {
 		"quantity": qty
 	}], true, "compact");
 }
+
+
 
 module.exports = {getContext}
