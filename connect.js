@@ -785,11 +785,37 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					exitAtMarketPrice(tradingsymbol, remQty, sellPrice, kc)
 				}
 
+				
+
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
 
 			}
 			
-			
+			//if somehow some positions not exited due to zerodha error, check again after few sec and try exiiting again by setting exit levels again
+			const intervalId = setInterval(async () => {
+				console.log("Checking in setInterval if there are any open positions left")
+				let pos= await kc.getPositions(); 
+				let openPositions = false;
+				let ts, qty;
+				pos["net"].forEach(el => {
+					if(el.quantity < 0 && exitLevelLogicCEPE == el.tradingsymbol.substring(el.tradingsymbol.length - 2)) {
+						openPositions = true;
+						ts = el.tradingsymbol;
+						qty = el.quantity;
+						if(exitLevelLogicCEPE == "CE") {
+							exitLevelCE = 1;
+						} else if(exitLevelLogicCEPE == "PE"){
+							exitLevelPE = 1000000
+						}
+					}
+				})
+				if(!openPositions) {
+					console.log("There are no open positions left so clearing interval")
+					clearInterval(intervalId);
+				} else {
+					console.log("Open positions found for " + tradingsymbol + " qty " + qty);
+				}
+			  }, 3000);
 			
 		}
 
@@ -951,23 +977,31 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, ignoreCatc
 			"validity": "DAY",
 
 		})
+		console.log("Exited " + tradingsymbol + " Qty " + qty)
 	} catch(e) {
 		//sensex, bankex can get market out of range error, try with limit order +10
+		console.log("Error in Exiting " + tradingsymbol + " Qty " + qty)
 		console.log(e)
 		
 		if(e.message && e.message.includes("range")) {
+			console.log("Found range error. Now exiting at limit price " + (price+10))
+			try {
+				await finalKc.placeOrder("regular", {
+					"exchange": exchange,
+					"tradingsymbol": tradingsymbol,
+					"transaction_type": "BUY",
+					"quantity": qty,
+					"product": "NRML",
+					"order_type": "LIMIT",
+					"price": price + 10,
+					"validity": "DAY",
+		
+				})
+			} catch (e) {
+				console.log("Error in exiting at limit price as well")
+				console.log(e)
+			}
 			
-			await finalKc.placeOrder("regular", {
-				"exchange": exchange,
-				"tradingsymbol": tradingsymbol,
-				"transaction_type": "BUY",
-				"quantity": qty,
-				"product": "NRML",
-				"order_type": "LIMIT",
-				"price": price + 10,
-				"validity": "DAY",
-	
-			})
 			
 		}
 		
