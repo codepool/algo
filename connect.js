@@ -156,6 +156,7 @@ app.server = app.listen(port, '0.0.0.0',async () => {
 	console.log("Getting All Instruments in NFO")
 	instList = await kc.getInstruments("NFO");
 	instListBFO = await kc.getInstruments("BFO");
+	filterInstruments();
 	peakProfit = 0;
 	curPlatformLoss = maxPlatformLoss;
 	if(!ticker) initializeTicker();
@@ -766,7 +767,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
-				if(!exit && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
+				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
 				exitLevelCE = 0; // reset to 0 once exit is happening
 				exitLevelPE = 0;
 				
@@ -785,43 +786,50 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					exitAtMarketPrice(tradingsymbol, remQty, sellPrice, kc)
 				}
 
-				
+				//if somehow some positions not exited due to zerodha error, check again after few sec and try exiiting again by setting exit levels again
+				checkForOpenPositions(exitLevelLogicCEPE);
 
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
 
 			}
 			
-			//if somehow some positions not exited due to zerodha error, check again after few sec and try exiiting again by setting exit levels again
-			const intervalId = setInterval(async () => {
-				console.log("Checking in setInterval if there are any open positions left")
-				let pos= await kc.getPositions(); 
-				let openPositions = false;
-				let ts, qty;
-				pos["net"].forEach(el => {
-					if(el.quantity < 0 && exitLevelLogicCEPE == el.tradingsymbol.substring(el.tradingsymbol.length - 2)) {
-						openPositions = true;
-						ts = el.tradingsymbol;
-						qty = el.quantity;
-						if(exitLevelLogicCEPE == "CE") {
-							exitLevelCE = 1;
-						} else if(exitLevelLogicCEPE == "PE"){
-							exitLevelPE = 1000000
-						}
-					}
-				})
-				if(!openPositions) {
-					console.log("There are no open positions left so clearing interval")
-					clearInterval(intervalId);
-				} else {
-					console.log("Open positions found for " + tradingsymbol + " qty " + qty);
-				}
-			  }, 3000);
+			
+			
 			
 		}
 
 	}catch(e) {
 		console.log(e);
 	}
+}
+
+function checkForOpenPositions(exitLevelLogicCEPE) {
+	const intervalId = setInterval(async () => {
+		console.log("Checking in setInterval if there are any open positions left")
+		let pos= await kc.getPositions(); 
+		let openPositions = false;
+		let ts, qty;
+		pos["net"].forEach(el => {
+			if(el.quantity < 0 && exitLevelLogicCEPE == el.tradingsymbol.substring(el.tradingsymbol.length - 2)) {
+				openPositions = true;
+				ts = el.tradingsymbol;
+				qty = el.quantity;
+				if(exitLevelLogicCEPE == "CE") {
+					exitLevelCE = 1;
+				} else if(exitLevelLogicCEPE == "PE"){
+					exitLevelPE = 10000000
+				}
+			}
+		})
+		if(!openPositions) {
+			if(exitLevelCE == 1) exitLevelCE = 0; //this should not happen but just in case
+			if(exitLevelPE == 10000000) exitLevelPE = 0;
+			console.log("There are no open positions left so clearing interval")
+			clearInterval(intervalId);
+		} else {
+			console.log("Open positions found for " + tradingsymbol + " qty " + qty);
+		}
+		}, 2000);
 }
 
 
@@ -853,7 +861,7 @@ async function getPnl(ticks) {
 	let pnl = 0;
 	let pos= await kc.getPositions();
 	let symbolMap = {}
-
+	//we wil store maximum 4 distinct option selling trading symbols. could be 2 CE & 2 PE
 	let maxLossSymbol; //store the maximum loss  trading symbol, We will exit that first and then the remaining symbols
 	let maxLoss = 100000000;
 	let symbol1, symbol2, symbol3, symbol4;
@@ -1997,17 +2005,8 @@ function calculateTradingSymbol(strike, inst, cepe) {
 	
 		if(i.name != "NIFTY" && i.name != "BANKNIFTY" && i.name != "MIDCPNIFTY" && i.name != "FINNIFTY") return;
 	
-		if(i.name != inst || i.strike != strike || i.instrument_type != cepe) return;
+		if(i.name == inst && i.strike == strike && i.instrument_type == cepe) return i;
 
-
-		//check if it's today's expiry  or next day's
-		
-		if(moment(i.expiry).format("DD-MM-yyyy") == moment().format("DD-MM-yyyy") 
-		|| moment(i.expiry).format("DD-MM-yyyy") == moment().add(1, 'day').format("DD-MM-yyyy")) {
-	
-			return i;
-			
-		}
 	});
 
 	
@@ -2017,14 +2016,8 @@ function calculateTradingSymbol(strike, inst, cepe) {
 	let listBFO = instListBFO.filter(i => {
 	
 		if(i.name != 'SENSEX' && i.name != 'BANKEX') return;
-		if(i.name != inst || i.strike != strike || i.instrument_type != cepe) return;
-
-		if(moment(i.expiry).format("DD-MM-yyyy") == moment().format("DD-MM-yyyy") 
-		|| moment(i.expiry).format("DD-MM-yyyy") == moment().add(1, 'day').format("DD-MM-yyyy")) {
-	
-			return i;
+		if(i.name == inst && i.strike == strike && i.instrument_type == cepe) return i;
 			
-		}
 	});
 
 	if(listBFO.length > 0 && listBFO[0]["tradingsymbol"]) {
@@ -2135,7 +2128,7 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 				payload["price"] = price;
 				payload["order_type"] = "LIMIT"
 			}
-		   await kc2.placeOrder("regular", payload)
+		   await kc.placeOrder("regular", payload)
 	   }
 	   return "Done";
 
@@ -2902,6 +2895,48 @@ async function processBankNiftyAlgo(premium, cepe, premiumLimit) {
 
 function sessionHook() {
 	console.log("User loggedout");
+}
+
+
+function filterInstruments() {
+	instList = instList.filter(i => checkIfIndex(i.name))
+	instListBFO = instListBFO.filter(i => checkIfIndex(i.name))
+	
+	const minDateNifty = instList.reduce((min, item) => (item.name=="NIFTY" && item.expiry < min) ? item.expiry : min, new Date("9999-12-31"));
+	const minDateBankNifty = instList.reduce((min, item) => (item.name=="BANKNIFTY" && item.expiry < min) ? item.expiry : min, new Date("9999-12-31"));
+	const minDateFinNifty = instList.reduce((min, item) => (item.name=="FINNIFTY" && item.expiry < min) ? item.expiry : min, new Date("9999-12-31"));
+	const minDateMidcpNifty = instList.reduce((min, item) => (item.name=="MIDCPNIFTY" && item.expiry < min) ? item.expiry : min, new Date("9999-12-31"));
+	const minDateSensex = instListBFO.reduce((min, item) => (item.name=="SENSEX" && item.expiry < min) ? item.expiry : min, new Date("9999-12-31"));
+	const minDateBankex = instListBFO.reduce((min, item) => (item.name=="BANKEX" && item.expiry < min) ? item.expiry : min, new Date("9999-12-31"));
+
+	instList = instList.filter(i => {
+		if(i.name=="NIFTY" && i.expiry.getTime() == minDateNifty.getTime() || i.name=="BANKNIFTY" && i.expiry.getTime() == minDateBankNifty.getTime() ||
+		i.name=="FINNIFTY" && i.expiry.getTime() == minDateFinNifty.getTime() || i.name=="MIDCPNIFTY" && i.expiry.getTime() == minDateMidcpNifty.getTime()) {
+			return true;
+		}
+		
+	})
+	
+
+	instListBFO = instListBFO.filter(i => {
+		if(i.name=="SENSEX" && i.expiry.getTime() == minDateSensex.getTime() || i.name=="BANKEX" && i.expiry.getTime() == minDateBankex.getTime() ) {
+		
+			return true;
+		}
+		
+	})
+}
+
+function checkIfIndex(name) {
+	if(!name) return false;
+	if(name == "BANKNIFTY" || name == "NIFTY" || name == "FINNIFTY"
+		|| name == "MIDCPNIFTY" || name == "SENSEX" || name == "BANKEX") {
+
+		return true;
+	} else {
+		return false;
+	}
+	
 }
 
 function getProfile() {
