@@ -715,26 +715,26 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
-		let exit = (pnl * -1) >= maxPlatformLoss;
+		let pnlExit = (pnl * -1) >= maxPlatformLoss;
 		let exitLevelLogicCEPE;
 		let levelLogic = false;
+		let applicableLevel;
 		
 		if(exitLevelCE > 0 || exitLevelPE > 0) {
-			
-			
+
 			let r = exitLevelLogic(ticks);
 			levelLogic = r["result"];
 			exitLevelLogicCEPE = r["cepe"]; //outputs which level has brokern CE or PE
+			applicableLevel = r["applicableLevel"];
+			
+		}		
+
+		if(levelLogic || pnlExit) {
+
+			
 			console.log("PNL Exit Logic " + exit)
-			console.log("Level Exit Logic " + levelLogic + " " + exitLevelLogicCEPE)
-		}
+			console.log("Level Exit Logic " + levelLogic + " Applicable Level = " + applicableLevel + " " + exitLevelLogicCEPE)
 
-		
-
-		if(levelLogic || (exit)) {
-
-			
-			
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
 				//exit the max loss symbol first
@@ -792,10 +792,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
 
 			}
-			
-			
-			
-			
+	
 		}
 
 	}catch(e) {
@@ -836,11 +833,13 @@ function checkForOpenPositions(exitLevelLogicCEPE) {
 function exitLevelLogic(ticks) {
 	let result=false;
 	let cepe = "";
+	let applicableLevel;
 	ticks.forEach(t => {
 		
 		if(exitLevelPE > 0 && t.last_price < exitLevelPE &&  allTokens.includes(Number(t.instrument_token))) {
 			result=true
 			cepe = 'PE';
+			applicableLevel = exitLevelPE;
 			return
 			
 		}
@@ -848,6 +847,7 @@ function exitLevelLogic(ticks) {
 		if(exitLevelCE > 0 && t.last_price > exitLevelCE &&  allTokens.includes(Number(t.instrument_token))) {
 			result=true
 			cepe = 'CE';
+			applicableLevel = exitLevelCE;
 			return
 			
 		}
@@ -1798,13 +1798,18 @@ function getUnderlying(tradingsymbol) {
 
 function getFreezeLimit(price, tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKEX")) return 900;
-	if(price > 5750 && price <=8625) return 5500;
+	if(tradingsymbol.startsWith("SENSEX")) return 1000;
+	if(tradingsymbol.startsWith("NIFTY")) return 1800;
+	if(tradingsymbol.startsWith("FINNIFTY")) return 1800;
+	if(tradingsymbol.startsWith("MIDCPNIFTY")) return 4200;
+	if(tradingsymbol.startsWith("BANKNIFTY")) return 900;
+	/*if(price > 5750 && price <=8625) return 5500;
 	if(price >8625 && price <=11500 ) return 4200;
 	if(price > 11500 && price <=17250) return 2800;
 	if(price >17250 && price <=27500 ) return 1800;
 	if(price > 27500 && price <= 40000) return 1200;
 	if(price > 40000 && price <=55000) return 900;
-	if(price > 55000) return 1000; // for sensex
+	if(price > 60000) return 1000; // for sensex*/
 	
 }
 
@@ -2149,13 +2154,13 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 	
 			let bm = await basketMargins(tradingsymbol, hedgeTradingsymbol, freezeLimit * (numLegs - i));
 			let marginUsed = bm["final"]["total"];
-			if(availableMargin - marginUsed > 400000) {
+			if(availableMargin - marginUsed > 300000) {
 				break;
 			}
 		} else if((numLegs - i) > 0){
 			//if no expiry then you cannot purchase hedges first, hence try only with sell positions
 			let om = await getRemainingMargin(tradingsymbol, freezeLimit * (numLegs - i));
-			if(om > 400000) {
+			if(om > 300000) {
 				break;
 			}
 			
