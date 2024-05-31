@@ -732,7 +732,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 		if(levelLogic || pnlExit) {
 
 			
-			console.log("PNL Exit Logic " + exit)
+			console.log("PNL Exit Logic " + pnlExit)
 			console.log("Level Exit Logic " + levelLogic + " Applicable Level = " + applicableLevel + " " + exitLevelLogicCEPE)
 
 			for (let i = 1; i <=4; i++) {
