@@ -89,7 +89,7 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 800000; 
+let maxPlatformLoss = 1200000; 
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
