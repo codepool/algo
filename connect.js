@@ -733,8 +733,12 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 			
 			console.log("PNL Exit Logic " + pnlExit)
-			console.log("Level Exit Logic " + levelLogic + " Applicable Level = " + applicableLevel + " " + exitLevelLogicCEPE)
+			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE)
 
+			if(!isMarketTimings()) {
+				console.log("Market Closed");
+				return;
+			}
 			for (let i = 1; i <=4; i++) {
 				//exit positions at market price
 				//exit the max loss symbol first
@@ -805,11 +809,11 @@ function checkForOpenPositions(exitLevelLogicCEPE) {
 		console.log("Checking in setInterval if there are any open positions left")
 		let pos= await kc.getPositions(); 
 		let openPositions = false;
-		let ts, qty;
+		let tradingsymbol, qty;
 		pos["net"].forEach(el => {
 			if(el.quantity < 0 && exitLevelLogicCEPE == el.tradingsymbol.substring(el.tradingsymbol.length - 2)) {
 				openPositions = true;
-				ts = el.tradingsymbol;
+				tradingsymbol = el.tradingsymbol;
 				qty = el.quantity;
 				if(exitLevelLogicCEPE == "CE") {
 					exitLevelCE = 1;
@@ -854,7 +858,7 @@ function exitLevelLogic(ticks) {
 		
 	})
 	
-	return {"cepe":cepe, "result": result };
+	return {"cepe":cepe, "result": result, "applicableLevel": applicableLevel};
 }
 
 async function getPnl(ticks) {
@@ -2943,6 +2947,14 @@ function checkIfIndex(name) {
 	}
 	
 }
+
+function isMarketTimings() {
+	const start = moment.tz("09:00", "HH:mm", "Asia/Kolkata");
+	const end = moment.tz("15:30", "HH:mm", "Asia/Kolkata");
+	const now = moment.tz("Asia/Kolkata");
+	return now.isBetween(start, end);
+}
+  
 
 function getProfile() {
 	kc.getProfile()
