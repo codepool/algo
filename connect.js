@@ -89,7 +89,11 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 1000000; 
+let maxPlatformLoss = 900000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 600000; //soft limit
+let softMaxPlatformLossHit = false;
+let maxPlatformLossHit = false;
+let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
@@ -99,7 +103,7 @@ let currentTicks;
 let pnlObject = {};
 let peakProfit = 0;
 let pnlLogic = false;
-let exitLevelCE = 0, exitLevelPE=0;
+let exitLevelCE = {}, exitLevelPE = {};
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -683,7 +687,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	let p =  await getPnl(ticks);
 
 	let pnl = p["pnl"] ? Number(p["pnl"]) : 0;
-	let maxLossSymbol = p["maxLossSymbol"]
+	let maxLossSymbol = p["maxLossSymbol"] //trading symbol which is currently running in max loss
 	let symbol1 = p["symbol1"]
 	let symbol2 = p["symbol2"]
 	let symbol3 = p["symbol3"]
@@ -708,24 +712,34 @@ async function pnlExitLogic(ticks, forceExit = false) {
 		curPlatformLoss = maxPlatformLoss;
 	}
 	
-
-	console.log("pnl = " + pnl + " Current Platform Loss Limit " + curPlatformLoss)
 	pnlObject = p;
 	console.log(p)
 
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
-		let pnlExit = (pnl * -1) >= maxPlatformLoss;
+		let pnlExit = false;
+		if(!softMaxPlatformLossHit) {
+			pnlExit = (pnl * -1) >= softMaxPlatformLoss;
+			if(pnlExit) {
+				softMaxPlatformLossHit = true;
+			}
+			
+		} else {
+			pnlExit = (pnl * -1) >= maxPlatformLoss;
+			if(pnlExit) maxPlatformLossHit = true;
+		}
+
 		let exitLevelLogicCEPE;
 		let levelLogic = false;
 		let applicableLevel;
 		
-		if(exitLevelCE > 0 || exitLevelPE > 0) {
+		if(Object.keys(exitLevelCE).length > 0 || Object.keys(exitLevelPE).length > 0) {
 
 			let r = exitLevelLogic(ticks);
 			levelLogic = r["result"];
 			exitLevelLogicCEPE = r["cepe"]; //outputs which level has brokern CE or PE
 			applicableLevel = r["applicableLevel"];
+			applicableIndex = r["applicableIndex"]
 			
 		}		
 
@@ -733,7 +747,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 			
 			console.log("PNL Exit Logic " + pnlExit)
-			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE)
+			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex)
 
 			if(!isMarketTimings()) {
 				console.log("Market Closed");
@@ -764,6 +778,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					sellPrice = symbolPrice3;
 				}
 				if(!tradingsymbol) return;
+				if(!pnlExit && applicableIndex != getUnderlying(tradingsymbol)) continue;
 				//if exit level logic then see whether CE should be exited or PE
 
 				let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
@@ -772,8 +787,9 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
 				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
-				exitLevelCE = 0; // reset to 0 once exit is happening
-				exitLevelPE = 0;
+				//once positions exited, reset the json for that index
+				delete exitLevelCE[applicableIndex];
+				delete exitLevelPE[applicableIndex];
 				
 				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 				let numFreezes = parseInt(sellQty / freezeLimit);
@@ -791,7 +807,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				}
 
 				//if somehow some positions not exited due to zerodha error, check again after few sec and try exiiting again by setting exit levels again
-				checkForOpenPositions(exitLevelLogicCEPE);
+				checkForOpenPositions(exitLevelLogicCEPE, applicableIndex);
 
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
 
@@ -799,32 +815,47 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	
 		}
 
+		//if hard platform stop loss reached exit all positions and then do kill switch
+		if(maxPlatformLossHit && !killSwitchActivated) {
+			killSwitchActivated = true;
+			await new Promise(resolve => setTimeout(resolve, 3000)); 
+			let pos= await kc.getPositions(); 
+			pos["net"].forEach(el => {
+				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
+				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
+				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, transaction_type)
+			})
+
+			//await killSwitch();
+		}
+		
+
 	}catch(e) {
 		console.log(e);
 	}
 }
 
-function checkForOpenPositions(exitLevelLogicCEPE) {
+function checkForOpenPositions(exitLevelLogicCEPE, applicableIndex) {
 	const intervalId = setInterval(async () => {
 		console.log("Checking in setInterval if there are any open positions left")
 		let pos= await kc.getPositions(); 
 		let openPositions = false;
 		let tradingsymbol, qty;
 		pos["net"].forEach(el => {
-			if(el.quantity < 0 && exitLevelLogicCEPE == el.tradingsymbol.substring(el.tradingsymbol.length - 2)) {
+			if(el.quantity < 0 && exitLevelLogicCEPE == el.tradingsymbol.substring(el.tradingsymbol.length - 2) && getUnderlying(el.tradingsymbol) == applicableIndex) {
 				openPositions = true;
 				tradingsymbol = el.tradingsymbol;
 				qty = el.quantity;
 				if(exitLevelLogicCEPE == "CE") {
-					exitLevelCE = 1;
+					exitLevelCE[applicableIndex] = 1;
 				} else if(exitLevelLogicCEPE == "PE"){
-					exitLevelPE = 10000000
+					exitLevelPE[applicableIndex]= 10000000
 				}
 			}
 		})
 		if(!openPositions) {
-			if(exitLevelCE == 1) exitLevelCE = 0; //this should not happen but just in case
-			if(exitLevelPE == 10000000) exitLevelPE = 0;
+			if(exitLevelCE[applicableIndex] == 1) delete exitLevelCE[applicableIndex]; //this should not happen but just in case
+			if(exitLevelPE[applicableIndex] == 10000000) delete exitLevelPE[applicableIndex];
 			console.log("There are no open positions left so clearing interval")
 			clearInterval(intervalId);
 		} else {
@@ -839,26 +870,28 @@ function exitLevelLogic(ticks) {
 	let cepe = "";
 	let applicableLevel;
 	ticks.forEach(t => {
-		
-		if(exitLevelPE > 0 && t.last_price < exitLevelPE &&  allTokens.includes(Number(t.instrument_token))) {
+		let indexName = map1[t.instrument_token]
+		if(exitLevelPE[indexName] > 0 && t.last_price < exitLevelPE[indexName] &&  allTokens.includes(Number(t.instrument_token))) {
 			result=true
 			cepe = 'PE';
-			applicableLevel = exitLevelPE;
+			applicableLevel = exitLevelPE[indexName];
+			applicableIndex = indexName
 			return
 			
 		}
 
-		if(exitLevelCE > 0 && t.last_price > exitLevelCE &&  allTokens.includes(Number(t.instrument_token))) {
+		if(exitLevelCE[indexName] > 0 && t.last_price > exitLevelCE[indexName] &&  allTokens.includes(Number(t.instrument_token))) {
 			result=true
 			cepe = 'CE';
-			applicableLevel = exitLevelCE;
+			applicableLevel = exitLevelCE[indexName];
+			applicableIndex = indexName
 			return
 			
 		}
 		
 	})
 	
-	return {"cepe":cepe, "result": result, "applicableLevel": applicableLevel};
+	return {"cepe":cepe, "result": result, "applicableLevel": applicableLevel, "applicableIndex": applicableIndex};
 }
 
 async function getPnl(ticks) {
@@ -971,7 +1004,7 @@ function getTicker(ticks, instrument_token) {
 }
 
 
-async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, ignoreCatch=0) {
+async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, transaction_type="BUY") {
 	
 	console.log("Exiting " + tradingsymbol + " Qty " + qty)
 	let exchange = "NFO";
@@ -982,7 +1015,7 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, ignoreCatc
 		await finalKc.placeOrder("regular", {
 			"exchange": exchange,
 			"tradingsymbol": tradingsymbol,
-			"transaction_type": "BUY",
+			"transaction_type": transaction_type,
 			"quantity": qty,
 			"product": "NRML",
 			"order_type": "MARKET",
@@ -991,17 +1024,18 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, ignoreCatc
 		})
 		console.log("Exited " + tradingsymbol + " Qty " + qty)
 	} catch(e) {
-		//sensex, bankex can get market out of range error, try with limit order +10
+		//sensex, bankex can get market out of range error due to liquidity problem, try with limit order +10
 		console.log("Error in Exiting " + tradingsymbol + " Qty " + qty)
 		console.log(e)
 		
 		if(e.message && e.message.includes("range")) {
+			if(!price) price = 100;
 			console.log("Found range error. Now exiting at limit price " + (price+10))
 			try {
 				await finalKc.placeOrder("regular", {
 					"exchange": exchange,
 					"tradingsymbol": tradingsymbol,
-					"transaction_type": "BUY",
+					"transaction_type": transaction_type,
 					"quantity": qty,
 					"product": "NRML",
 					"order_type": "LIMIT",
@@ -1018,15 +1052,27 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, ignoreCatc
 		}
 		
 		
-		if(ignoreCatch <= 3) { // if exception due to rate limit, try once again after 500 ms. Do this only 3 times
-			//console.log("Trial Number " + ignoreCatch)
-			//await new Promise(resolve => setTimeout(resolve, 500));
-			//exitAtMarketPrice(tradingsymbol, qty, finalKc, ignoreCatch + 1)
-		}
-		
 	}
 	
 }
+async function exitAllQtyAtMarketPrice( tradingsymbol, qty, transaction_type) {
+	let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
+	let numFreezes = parseInt(qty / freezeLimit);
+	let remQty = qty % freezeLimit;
+	
+	for (let j = 1; j<=numFreezes; j++) {  
+		let finalKc = kc;
+		if(j > 15) {
+			finalKc = kc2
+		}
+		exitAtMarketPrice(tradingsymbol, freezeLimit, 0, finalKc, transaction_type) 
+	}
+	if(remQty > 0) {
+		exitAtMarketPrice(tradingsymbol, remQty, 0, kc, transaction_type)
+	}
+
+}
+
 
 
 async function cancelTrigger(currentOrder) {
@@ -1165,6 +1211,8 @@ app.get('/status', async (req, res) => {
 		"Pnl Logic": pnlLogic,
 		"PeakProfit": peakProfit,
 		"maxPLatformLoss": maxPlatformLoss,
+		"softMaxPLatformLoss": softMaxPlatformLoss,
+		"softMaxPLatformLossHit": softMaxPlatformLossHit,
 		"CurrentPlatformStopLoss": curPlatformLoss,
 		"pnl": pnlObject
 	})
@@ -1188,11 +1236,11 @@ app.post('/globalValues', urlencodedParser, async (req, res) => {
 	}
 
 	if(req.body.exitLevelCE) {
-		exitLevelCE = req.body.exitLevelCE;
+		exitLevelCE[req.body.indexName] = req.body.exitLevelCE;
 
 	} 
 	if(req.body.exitLevelPE) {
-		exitLevelPE = req.body.exitLevelPE;
+		exitLevelPE[req.body.indexName] = req.body.exitLevelPE;
 	}
 
 	res.send("Success!")
@@ -2083,7 +2131,6 @@ function getHedgeTradingsymbol(tradingsymbol) {
 
 
 async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) {
-
 	
 	 //numLegs = no of freezes you want to purchase (eg for nifty id leg =2, means qty = 1800 * 2)
 	try {
@@ -2110,13 +2157,13 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 		if(el.quantity < 0 && el.tradingsymbol == tradingsymbol) {
 			sellQty1 = el.quantity * -1;
 		}
-		if(el.quantity > 0 && cepe1 == cepe) {
+		if(el.quantity > 0 && cepe1 == cepe && getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol)) {
 			buyQty = el.quantity
 			hedgeTradingsymbol1 = el.tradingsymbol;
 		}
 	})
 
-	if((sellQty1 + numLegs * freezeLimit) <= buyQty) {
+	if(buyQty > 0 && (sellQty1 + numLegs * freezeLimit) <= buyQty) {
 		//sell remaining positions directly, hedges are not required since they are already there
 
 		for(let i = 1; i<= numLegs; i++) {
@@ -2233,7 +2280,7 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 		
 		positions["net"].forEach(el => {
 			let cepe1 = el.tradingsymbol.substring(el.tradingsymbol.length - 2);
-			if(cepe1 == cepe && el.tradingsymbol != tradingsymbol && el.quantity > 0) {
+			if(cepe1 == cepe && el.tradingsymbol != tradingsymbol && el.quantity > 0 && getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol)) {
 				buyQty = el.quantity;
 				
 			}
@@ -2251,7 +2298,6 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 			numFreezesBuy = parseInt(totalBuyQty / freezeLimit);
 
 		}
- 		
 		for(let i = 1; i<= numFreezesBuy; i++) {
 			 payload = {
 				"exchange": "NFO",
@@ -2297,7 +2343,6 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 
 	} else {
 
-
 		//if non expiry day then you cannot buy hedges first, so sell till the margin permits (until you get margin shortfall exception)
 		for(let i = 1; i<= numFreezes; i++) {
 
@@ -2336,45 +2381,41 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 async function exitPositions(tradingsymbol, price, numLegs) {
 	
 	try {
-		
-		if(!numLegs) numLegs = 100; //take a very big quantity so that we can exit all
+		//irrespective of trading symnbol, exit short positions of matching underlying instrument
+		console.log("exit " + tradingsymbol + " "+ price + " " + numLegs)
 		tradingsymbol = await getSingleSellPos() || tradingsymbol;
 		if(!tradingsymbol) return "Enter trading symbol first"
 		let positions = await kc.getPositions();
 		let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
-		
+		let sellQty; let sellTradingSymbol;
 		positions["net"].forEach(el => {
 			
-			if(el.tradingsymbol == tradingsymbol && el.quantity < 0) {
+			if(getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol) && el.quantity < 0) {
 				sellQty = el.quantity * -1;
+				sellTradingSymbol = el.tradingsymbol;
 				
 			}
 			
 		})
-		
-		let numFreezes = numLegs;
-		
-		for(let i = 1; i<= numFreezes; i++) {
-			let payload = {
-				"exchange": "NFO",
-				"tradingsymbol": tradingsymbol,
-				"transaction_type": "BUY",
-				"quantity": freezeLimit,
-				"product": "NRML",
-				"order_type": "MARKET",
-				"validity": "DAY"
-		
-			}
-			if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
-				payload["exchange"] = "BFO";
-			}
-			if(price > 0) {
-				payload["price"] = price;
-				payload["order_type"] = "LIMIT"
-			}
-			
-			await kc.placeOrder("regular", payload)
+		if(numLegs) {
+			sellQty = numLegs * freezeLimit;
 		}
+
+		
+		let numFreezes = parseInt(sellQty / freezeLimit);
+		let remQty = sellQty % freezeLimit;
+		
+		for (let j = 1; j<=numFreezes; j++) {  
+			let finalKc = kc;
+			if(j > 15) {
+				finalKc = kc2
+			}
+			exitAtMarketPrice(sellTradingSymbol, freezeLimit, 0, finalKc) 
+		}
+		if(remQty > 0) {
+			exitAtMarketPrice(sellTradingSymbol, remQty, 0, kc)
+		}
+
 		
 	} catch(e) {
 
@@ -2790,6 +2831,42 @@ async function cancelAllGTT() {
 		quantity: 2
 	}).
 }*/
+
+
+async function killSwitch() {
+	const browser = await puppeteer.launch({ headless: true });
+	const page = await browser.newPage();
+	console.log("Opened browser")
+	const token = totp("6XOVLZ3UHR6ZREHBUEGQLWYAWTVLPYWG");
+	await page.goto(`https://console.zerodha.com`, {waitUntil: "domcontentloaded"});
+	await page.waitForTimeout(1000);
+	await page.click("button");
+	await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+	console.log("Opened Console Login Page")
+	await page.waitForSelector('#userid', { visible: true });
+	await page.type('#userid', 'YC2151');
+	await page.type('#password', 'aerial@258G');
+	await page.click('button[type="submit"]');
+	await page.waitForTimeout(1000);
+	await page.type('input', token);
+	await page.click('button[type="submit"]');
+	await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+	await page.goto("https://console.zerodha.com/account/segment-activation");
+	console.log("Opened F&O Segment Page")
+	await page.waitForTimeout(1000);
+	await page.waitForSelector('#form_segment_manage', { visible: true });
+	await page.click("label[for='NSE_FO']");
+	await page.click("label[for='BSE_FO']");
+	await page.click(".segment-activation button")
+	await page.waitForSelector(".modal-body", { visible: true })
+	console.log("Unchecked F&O checkboxes")
+	await page.waitForTimeout(1000)
+	await page.click(".modal-body .btn-grey")
+	console.log("Confirmed deactivation of segments")
+	await browser.close();
+	console.log("Closed the browser")
+  
+  }
 
 async function processBankNiftyAlgo(premium, cepe, premiumLimit) {
     premium = Number(premium)
