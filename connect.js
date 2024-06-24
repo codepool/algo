@@ -781,11 +781,13 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				if(!pnlExit && applicableIndex != getUnderlying(tradingsymbol)) continue;
 				//if exit level logic then see whether CE should be exited or PE
 
+				
 				let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
 				
 
 				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
 				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
+				//also if stoploss is set on ce level while we have only pe positions just return
 				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
 				//once positions exited, reset the json for that index
 				delete exitLevelCE[applicableIndex];
@@ -823,10 +825,9 @@ async function pnlExitLogic(ticks, forceExit = false) {
 			pos["net"].forEach(el => {
 				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
 				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
-				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, transaction_type)
+				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
 			})
-
-			//await killSwitch();
+			await killSwitch();
 		}
 		
 
@@ -869,6 +870,7 @@ function exitLevelLogic(ticks) {
 	let result=false;
 	let cepe = "";
 	let applicableLevel;
+	let applicableIndex;
 	ticks.forEach(t => {
 		let indexName = map1[t.instrument_token]
 		if(exitLevelPE[indexName] > 0 && t.last_price < exitLevelPE[indexName] &&  allTokens.includes(Number(t.instrument_token))) {
@@ -1029,8 +1031,8 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, transactio
 		console.log(e)
 		
 		if(e.message && e.message.includes("range")) {
-			if(!price) price = 100;
-			console.log("Found range error. Now exiting at limit price " + (price+10))
+			if(!price) price = 30;
+			console.log("Found range error. Now exiting at limit price " + (price * 3))
 			try {
 				await finalKc.placeOrder("regular", {
 					"exchange": exchange,
@@ -1039,7 +1041,7 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, transactio
 					"quantity": qty,
 					"product": "NRML",
 					"order_type": "LIMIT",
-					"price": price + 10,
+					"price": price * 3,
 					"validity": "DAY",
 		
 				})
@@ -1055,7 +1057,7 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, transactio
 	}
 	
 }
-async function exitAllQtyAtMarketPrice( tradingsymbol, qty, transaction_type) {
+async function exitAllQtyAtMarketPrice( tradingsymbol, qty, price, transaction_type) {
 	let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 	let numFreezes = parseInt(qty / freezeLimit);
 	let remQty = qty % freezeLimit;
@@ -1065,10 +1067,10 @@ async function exitAllQtyAtMarketPrice( tradingsymbol, qty, transaction_type) {
 		if(j > 15) {
 			finalKc = kc2
 		}
-		exitAtMarketPrice(tradingsymbol, freezeLimit, 0, finalKc, transaction_type) 
+		exitAtMarketPrice(tradingsymbol, freezeLimit, price, finalKc, transaction_type) 
 	}
 	if(remQty > 0) {
-		exitAtMarketPrice(tradingsymbol, remQty, 0, kc, transaction_type)
+		exitAtMarketPrice(tradingsymbol, remQty, price, kc, transaction_type)
 	}
 
 }
@@ -2861,7 +2863,7 @@ async function killSwitch() {
 	await page.waitForSelector(".modal-body", { visible: true })
 	console.log("Unchecked F&O checkboxes")
 	await page.waitForTimeout(1000)
-	await page.click(".modal-body .btn-grey")
+	await page.click(".modal-body .btn-blue")
 	console.log("Confirmed deactivation of segments")
 	await browser.close();
 	console.log("Closed the browser")
