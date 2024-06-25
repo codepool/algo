@@ -822,11 +822,13 @@ async function pnlExitLogic(ticks, forceExit = false) {
 			killSwitchActivated = true;
 			await new Promise(resolve => setTimeout(resolve, 3000)); 
 			let pos= await kc.getPositions(); 
-			pos["net"].forEach(el => {
+			pos["net"].forEach(async el => {
 				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
 				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
 				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
+				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
 			})
+			await new Promise(resolve => setTimeout(resolve, 1000));
 			await killSwitch();
 		}
 		
@@ -1723,17 +1725,17 @@ async function exitAtMarket(tradingsymbol) {
 
 function getHedgesStrikeDiff(tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKNIFTY")) {
-		return 500;
-	} else if(tradingsymbol.startsWith("NIFTY")) {
-		return 150
-	} else if(tradingsymbol.startsWith("MIDCP")) {
-		return 100
-	} else if(tradingsymbol.startsWith("FINNIFTY")) {
-		return 150;
-	} else if(tradingsymbol.startsWith("SENSEX")) {
-		return 500
-	} else if(tradingsymbol.startsWith("BANKEX")) {
 		return 600;
+	} else if(tradingsymbol.startsWith("NIFTY")) {
+		return 350
+	} else if(tradingsymbol.startsWith("MIDCP")) {
+		return 200
+	} else if(tradingsymbol.startsWith("FINNIFTY")) {
+		return 350;
+	} else if(tradingsymbol.startsWith("SENSEX")) {
+		return 800
+	} else if(tradingsymbol.startsWith("BANKEX")) {
+		return 700;
 	}
 }
 
