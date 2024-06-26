@@ -2385,23 +2385,26 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 async function exitPositions(tradingsymbol, price, numLegs) {
 	
 	try {
-		//irrespective of trading symnbol, exit short positions of matching underlying instrument
+		
 		console.log("exit " + tradingsymbol + " "+ price + " " + numLegs)
-		tradingsymbol = await getSingleSellPos() || tradingsymbol;
-		if(!tradingsymbol) return "Enter trading symbol first"
+		//tradingsymbol = await getSingleSellPos() || tradingsymbol;
+		//if(!tradingsymbol) return "Enter trading symbol first"
 		let positions = await kc.getPositions();
 		let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 		let sellQty; let sellTradingSymbol;
+		let min = 1000000
 		positions["net"].forEach(el => {
-			
-			if(getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol) && el.quantity < 0) {
+			//exit that trading symbol that nearer to strike 
+			let diff = Math.abs(getStrike(el.tradingsymbol)["strike"] - getStrike(tradingsymbol)["strike"])
+			if(getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol) && el.quantity < 0 && diff < min)  {
 				sellQty = el.quantity * -1;
 				sellTradingSymbol = el.tradingsymbol;
+				min = diff;
 				
 			}
 			
 		})
-		if(numLegs) {
+		if(numLegs && (numLegs * freezeLimit <= sellQty)) {
 			sellQty = numLegs * freezeLimit;
 		}
 
