@@ -252,6 +252,7 @@ async function onTicks(ticks) {
 	try {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
+		checkAndActivateKillSwitch(pos);
 		let sellPos = []
 		pos["net"].forEach(p => { 
 	
@@ -732,6 +733,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 		let exitLevelLogicCEPE;
 		let levelLogic = false;
 		let applicableLevel;
+		let applicableIndex;
 		
 		if(Object.keys(exitLevelCE).length > 0 || Object.keys(exitLevelPE).length > 0) {
 
@@ -746,7 +748,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 		if(levelLogic || pnlExit) {
 
 			
-			console.log("PNL Exit Logic " + pnlExit)
+			console.log("PNL Exit Logic " + pnlExit + " " + "softMaxPlatformLossHit = " + softMaxPlatformLossHit + " maxPlatformLossHit = " + maxPlatformLossHit)
 			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex)
 
 			if(!isMarketTimings()) {
@@ -817,20 +819,6 @@ async function pnlExitLogic(ticks, forceExit = false) {
 	
 		}
 
-		//if hard platform stop loss reached exit all positions and then do kill switch
-		if(maxPlatformLossHit && !killSwitchActivated) {
-			killSwitchActivated = true;
-			await new Promise(resolve => setTimeout(resolve, 3000)); 
-			let pos= await kc.getPositions(); 
-			pos["net"].forEach(async el => {
-				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
-				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
-				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
-				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
-			})
-			await new Promise(resolve => setTimeout(resolve, 1000));
-			await killSwitch();
-		}
 		
 
 	}catch(e) {
@@ -867,6 +855,33 @@ function checkForOpenPositions(exitLevelLogicCEPE, applicableIndex) {
 		}, 2000);
 }
 
+async function checkAndActivateKillSwitch(pos) {
+	if(!isMarketTimings()) return;
+	console.log("Checking kill switch logic")
+	//if hard platform stop loss reached exit all positions and then do kill switch
+	try {
+		if(maxPlatformLossHit && !killSwitchActivated) {
+			killSwitchActivated = true;
+			await new Promise(resolve => setTimeout(resolve, 2000)); 
+			pos["net"].forEach(async el => {
+				//exit all positions first
+				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
+				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
+				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
+				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
+			})
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			//await killSwitch();
+		} else {
+			console.log("Kill Switch Logic false")
+		}
+		
+	} catch(e) {
+		console.log("error in checkAndActivateKillSwitch");
+		console.log(e)
+	}
+	
+}
 
 function exitLevelLogic(ticks) {
 	let result=false;
@@ -1275,8 +1290,8 @@ app.post('/exitPositions', urlencodedParser, async (req, res) => {
 
 app.post('/sell', urlencodedParser, async (req, res) => {
 	
-	let tradingsymbol = calculateTradingSymbol(req.body.strike, req.body.instrument, req.body.cepe)
-	let response = await sellPositions(tradingsymbol, req.body.sellQtyPercent, req.body.sellPrice, req.body.withoutHedgesFirst);
+	let tradingsymbol = calculateTradingSymbol(req.body.strike, req.body.instrument, req.body.cepe, req.body.allTicks)
+	let response = await sellPositions(tradingsymbol, req.body.sellQtyPercent, req.body.sellPrice, req.body.withoutHedgesFirst, req.body.allTicks);
 	res.send(response);
 })
 
@@ -1725,18 +1740,23 @@ async function exitAtMarket(tradingsymbol) {
 
 function getHedgesStrikeDiff(tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKNIFTY")) {
-		return 600;
+		return 1000;
 	} else if(tradingsymbol.startsWith("NIFTY")) {
-		return 350
+		return 600;
 	} else if(tradingsymbol.startsWith("MIDCP")) {
-		return 200
+		return 400;
 	} else if(tradingsymbol.startsWith("FINNIFTY")) {
-		return 350;
+		return 600;
 	} else if(tradingsymbol.startsWith("SENSEX")) {
-		return 800
+		return 1400;
 	} else if(tradingsymbol.startsWith("BANKEX")) {
-		return 700;
+		return 1200;
 	}
+}
+
+function getAutoHedgeTradingSymbol(tradingsymbol) {
+
+
 }
 
 function getStrikePriceDiff(tradingsymbol) {
@@ -1811,7 +1831,7 @@ function getStrike(tradingsymbol) {
 	} else if(tradingsymbol.startsWith("MIDCP")) {
 		//check if midcap has reached 10k, i.e 7th digit from last is 1
 		if(tradingsymbol.substring(l-7, l-6) == 1)  {
-			return {"prefix": tradingsymbol.substring(0, l-6), 
+			return {"prefix": tradingsymbol.substring(0, l-7), 
 			"strike": Number(tradingsymbol.substring(l-7, l-2)) 
 			}
 		}
@@ -2117,24 +2137,57 @@ function getUnderlyingFromInst(instrument_token) {
 	
 }
 
-function getHedgeTradingsymbol(tradingsymbol) {
+function getHedgeTradingsymbol(tradingsymbol, allTicks) {
+	//console.table(allTicks)
 	let isCE = true;
 	let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
 	if(cepe == 'PE') {
 		isCE = false;
 	}
-	let hedgeStrike;
+	let hedgeTradingSymbol;
+	let hedgeTradingSymbolFound = false;
+	let strike = getStrike(tradingsymbol)["strike"];
+	
 	if(isCE) {
-		hedgeStrike = getStrike(tradingsymbol)["strike"] + getHedgesStrikeDiff(tradingsymbol);
+		let prevStrikePrice;
+		allTicks.sort((a, b) => a.strike - b.strike);
+		allTicks.forEach(tick => {
+			if(getStrike(tradingsymbol)["prefix"] != getStrike(tick.tradingsymbol)["prefix"]) return; //both should belong to same expiry
+			if(tick.strike <= strike) return;
+			if(tick.strike - strike > getHedgesStrikeDiff(tradingsymbol)) return;
+			if(prevStrikePrice == undefined) prevStrikePrice = tick.last_price;
+			if(prevStrikePrice - tick.last_price > 0 &&  prevStrikePrice - tick.last_price < .4) {
+				hedgeTradingSymbol = tick.tradingsymbol;
+				hedgeTradingSymbolFound = true;
+
+			} 
+			prevStrikePrice = tick.last_price;
+			if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
+		})
+		return hedgeTradingsymbol;
 	} else {
-		hedgeStrike = getStrike(tradingsymbol)["strike"] - getHedgesStrikeDiff(tradingsymbol);
+		let prevStrikePrice;
+		allTicks.sort((a, b) => a.strike - b.strike);
+		allTicks.forEach(tick => {
+			if(getStrike(tradingsymbol)["prefix"] != getStrike(tick.tradingsymbol)["prefix"]) return; //both should belong to same expiry
+			if(tick.strike >= strike) return;
+			if(strike - tick.strike > getHedgesStrikeDiff(tradingsymbol)) return;
+			if(prevStrikePrice == undefined) prevStrikePrice = tick.last_price;
+			if(prevStrikePrice - tick.last_price > 0 &&  prevStrikePrice - tick.last_price < .4) {
+				hedgeTradingSymbol = tick.tradingsymbol;
+				hedgeTradingSymbolFound = true;
+
+			} 
+			prevStrikePrice = tick.last_price;
+			if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
+		})
+		return hedgeTradingsymbol;
 	}
-	let hedgeTradingsymbol = getStrike(tradingsymbol)["prefix"] + hedgeStrike + cepe;
-	return hedgeTradingsymbol;
+	
 }
 
 
-async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) {
+async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, allTicks) {
 	
 	 //numLegs = no of freezes you want to purchase (eg for nifty id leg =2, means qty = 1800 * 2)
 	try {
@@ -2166,6 +2219,8 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 			hedgeTradingsymbol1 = el.tradingsymbol;
 		}
 	})
+	let hedgeTradingsymbol = hedgeTradingsymbol1 || getHedgeTradingsymbol(tradingsymbol, allTicks);
+	console.log(">>>>> " + hedgeTradingsymbol)
 
 	if(buyQty > 0 && (sellQty1 + numLegs * freezeLimit) <= buyQty) {
 		//sell remaining positions directly, hedges are not required since they are already there
@@ -2188,13 +2243,13 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst) 
 				payload["price"] = price;
 				payload["order_type"] = "LIMIT"
 			}
-		   await kc.placeOrder("regular", payload)
+		   //await kc.placeOrder("regular", payload)
 	   }
 	   return "Done";
 
 	}
 
-	let hedgeTradingsymbol = hedgeTradingsymbol1 || getHedgeTradingsymbol(tradingsymbol);
+	
 	
 	let sellQty = 0; //allowable sell qty based on available margin
 	let numLegs1 = numLegs;
