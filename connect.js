@@ -871,7 +871,7 @@ async function checkAndActivateKillSwitch(pos) {
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
 			})
 			await new Promise(resolve => setTimeout(resolve, 1000));
-			//await killSwitch();
+			await killSwitch();
 		} else {
 			console.log("Kill Switch Logic false")
 		}
