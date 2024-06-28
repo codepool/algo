@@ -865,6 +865,7 @@ async function checkAndActivateKillSwitch(pos) {
 			await new Promise(resolve => setTimeout(resolve, 2000)); 
 			pos["net"].forEach(async el => {
 				//exit all positions first
+				if(el.quantity == 0) return;
 				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
 				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
 				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
