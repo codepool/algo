@@ -28,7 +28,7 @@ const endTime = moment('3:30 PM', 'h:mm A');
 const app = express()
 const port = 3000
 var jsonParser = bodyParser.json()
-var urlencodedParser = bodyParser.urlencoded({ extended: false });
+var urlencodedParser = bodyParser.urlencoded({limit: '50mb', extended: true });
 var ticker;
 
 
@@ -1743,13 +1743,13 @@ function getHedgesStrikeDiff(tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKNIFTY")) {
 		return 1000;
 	} else if(tradingsymbol.startsWith("NIFTY")) {
-		return 600;
+		return 700;
 	} else if(tradingsymbol.startsWith("MIDCP")) {
 		return 400;
 	} else if(tradingsymbol.startsWith("FINNIFTY")) {
-		return 600;
+		return 700;
 	} else if(tradingsymbol.startsWith("SENSEX")) {
-		return 1400;
+		return 1200;
 	} else if(tradingsymbol.startsWith("BANKEX")) {
 		return 1200;
 	}
@@ -1762,7 +1762,7 @@ function getAutoHedgeTradingSymbol(tradingsymbol) {
 
 function getStrikePriceDiff(tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKNIFTY")) {
-		return 0.5;
+		return 0.4;
 	} else if(tradingsymbol.startsWith("NIFTY")) {
 		return 0.4
 	} else if(tradingsymbol.startsWith("MIDCP")) {
@@ -1772,7 +1772,7 @@ function getStrikePriceDiff(tradingsymbol) {
 	} else if(tradingsymbol.startsWith("SENSEX")) {
 		return 0.5
 	} else if(tradingsymbol.startsWith("BANKEX")) {
-		return 0.5;
+		return 0.4;
 	}
 }
 
@@ -2140,7 +2140,8 @@ function getUnderlyingFromInst(instrument_token) {
 }
 
 function getHedgeTradingsymbol(tradingsymbol, allTicks) {
-	//console.table(allTicks)
+	allTicks = JSON.parse(allTicks)
+	allTicks.sort((a, b) => a.strike - b.strike);
 	let isCE = true;
 	let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
 	if(cepe == 'PE') {
@@ -2151,39 +2152,43 @@ function getHedgeTradingsymbol(tradingsymbol, allTicks) {
 	let strike = getStrike(tradingsymbol)["strike"];
 	
 	if(isCE) {
-		let prevStrikePrice;
-		allTicks.sort((a, b) => a.strike - b.strike);
+		let prevTick;
+		
 		allTicks.forEach(tick => {
+			if(!tick.tradingsymbol) return;
+			if(tick.tradingsymbol.substring(tick.tradingsymbol.length - 2) != 'CE') return;
 			if(getStrike(tradingsymbol)["prefix"] != getStrike(tick.tradingsymbol)["prefix"]) return; //both should belong to same expiry
 			if(tick.strike <= strike) return;
 			if(tick.strike - strike > getHedgesStrikeDiff(tradingsymbol)) return;
-			if(prevStrikePrice == undefined) prevStrikePrice = tick.last_price;
-			if(prevStrikePrice - tick.last_price > 0 &&  prevStrikePrice - tick.last_price < .4) {
-				hedgeTradingSymbol = tick.tradingsymbol;
+			if(prevTick == undefined) prevTick = tick;
+			if(prevTick.last_price - tick.last_price > 0 &&  prevTick.last_price - tick.last_price < .4) {
+				hedgeTradingSymbol = prevTick.tradingsymbol;
 				hedgeTradingSymbolFound = true;
 
 			} 
-			prevStrikePrice = tick.last_price;
+			prevTick = tick;
 			if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
 		})
-		return hedgeTradingsymbol;
+		return hedgeTradingSymbol;
 	} else {
-		let prevStrikePrice;
-		allTicks.sort((a, b) => a.strike - b.strike);
+		let prevTick;
 		allTicks.forEach(tick => {
+			if(!tick.tradingsymbol) return;
+			if(tick.tradingsymbol.substring(tick.tradingsymbol.length - 2) != 'PE') return;
 			if(getStrike(tradingsymbol)["prefix"] != getStrike(tick.tradingsymbol)["prefix"]) return; //both should belong to same expiry
 			if(tick.strike >= strike) return;
 			if(strike - tick.strike > getHedgesStrikeDiff(tradingsymbol)) return;
-			if(prevStrikePrice == undefined) prevStrikePrice = tick.last_price;
-			if(prevStrikePrice - tick.last_price > 0 &&  prevStrikePrice - tick.last_price < .4) {
-				hedgeTradingSymbol = tick.tradingsymbol;
+			if(prevTick == undefined) prevTick = tick;
+			if(prevTick.last_price - tick.last_price > 0 &&  prevTick.last_price - tick.last_price < .4) {
+				hedgeTradingSymbol = prevTick.tradingsymbol;
 				hedgeTradingSymbolFound = true;
 
 			} 
-			prevStrikePrice = tick.last_price;
+			prevTick = tick;
 			if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
 		})
-		return hedgeTradingsymbol;
+		console.log(">>>>> pe " + hedgeTradingSymbol)
+		return hedgeTradingSymbol;
 	}
 	
 }
@@ -2222,7 +2227,6 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, 
 		}
 	})
 	let hedgeTradingsymbol = hedgeTradingsymbol1 || getHedgeTradingsymbol(tradingsymbol, allTicks);
-	console.log(">>>>> " + hedgeTradingsymbol)
 
 	if(buyQty > 0 && (sellQty1 + numLegs * freezeLimit) <= buyQty) {
 		//sell remaining positions directly, hedges are not required since they are already there
@@ -2330,51 +2334,10 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 	
 	let payload;
 	
-	
 	if(isExpiry(tradingsymbol) && !withoutHedgesFirst) {
 		//place hedge orders at market price first and place sell limit order (buy only remaining hedges if needed)
 		
-		let cepe = tradingsymbol.substring(tradingsymbol.length - 2);
-		let positions = await kc.getPositions();
-		let buyQty = 0;
-		let sellQty = 0;
-		
-		positions["net"].forEach(el => {
-			let cepe1 = el.tradingsymbol.substring(el.tradingsymbol.length - 2);
-			if(cepe1 == cepe && el.tradingsymbol != tradingsymbol && el.quantity > 0 && getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol)) {
-				buyQty = el.quantity;
-				
-			}
-			if(el.tradingsymbol == tradingsymbol && el.quantity < 0) {
-				sellQty = el.quantity * -1;
-			}
-			
-		})
-
-		let totalBuyQty = totalQty + (sellQty - buyQty);
-		let numFreezesBuy=0;
-		
-
-		if(totalBuyQty > 0) {
-			numFreezesBuy = parseInt(totalBuyQty / freezeLimit);
-
-		}
-		for(let i = 1; i<= numFreezesBuy; i++) {
-			 payload = {
-				"exchange": "NFO",
-				"tradingsymbol": hedgeTradingsymbol,
-				"transaction_type": "BUY",
-				"quantity": freezeLimit,
-				"product": "NRML",
-				"order_type": "MARKET",
-				"validity": "DAY"
-		
-			}
-			if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
-				payload["exchange"] = "BFO";
-			}
-			await kc.placeOrder("regular", payload)
-		}
+		buyHedgesEqualToSell(tradingsymbol, hedgeTradingsymbol, totalQty)
 
 		//now start with sell Positions
 
@@ -2401,10 +2364,10 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 			
 		}	
 
-
 	} else {
 
 		//if non expiry day then you cannot buy hedges first, so sell till the margin permits (until you get margin shortfall exception)
+		let freezesSold = 0;
 		for(let i = 1; i<= numFreezes; i++) {
 
 			payload = {
@@ -2416,7 +2379,6 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 				"order_type": "MARKET",
 				"validity": "DAY"
 				
-		
 			}
 			if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
 				payload["exchange"] = "BFO";
@@ -2427,16 +2389,66 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 			}
 			try {
 				await kc.placeOrder("regular", payload)
+				freezesSold++;
 			} catch (e) {
 
+				//now buy hedge symbols
+				buyHedgesEqualToSell(tradingsymbol, hedgeTradingsymbol,freezesSold * freezeLimit)
+
 			}
-			
 
 		}
 
 	}
 }
 
+
+async function buyHedgesEqualToSell(tradingsymbol, totalQty) {
+
+	let cepe = tradingsymbol.substring(tradingsymbol.length - 2);
+	let positions = await kc.getPositions();
+	let buyQty = 0;
+	let sellQty = 0;
+	let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
+	
+	positions["net"].forEach(el => {
+		let cepe1 = el.tradingsymbol.substring(el.tradingsymbol.length - 2);
+		if(cepe1 == cepe && el.tradingsymbol != tradingsymbol && el.quantity > 0 && getUnderlying(el.tradingsymbol) == getUnderlying(tradingsymbol)) {
+			buyQty = el.quantity;
+			
+		}
+		if(el.tradingsymbol == tradingsymbol && el.quantity < 0) {
+			sellQty = el.quantity * -1;
+		}
+		
+	})
+
+	let totalBuyQty = totalQty + (sellQty - buyQty);
+	let numFreezesBuy=0;
+	
+
+	if(totalBuyQty > 0) {
+		numFreezesBuy = parseInt(totalBuyQty / freezeLimit);
+
+	}
+	for(let i = 1; i<= numFreezesBuy; i++) {
+			payload = {
+			"exchange": "NFO",
+			"tradingsymbol": hedgeTradingsymbol,
+			"transaction_type": "BUY",
+			"quantity": freezeLimit,
+			"product": "NRML",
+			"order_type": "MARKET",
+			"validity": "DAY"
+	
+		}
+		if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+			payload["exchange"] = "BFO";
+		}
+		await kc.placeOrder("regular", payload)
+	}
+
+}
 
 
 async function exitPositions(tradingsymbol, price, numLegs) {
@@ -2748,71 +2760,6 @@ async function sellHedges(tradingsymbol) {
 	
 }
 
-async function buyHedgesEqualtoSell() {
-	
-	let positions = await kc.getPositions();
-	
-	let sellQty = 0, buyQty = 0;
-	
-	let selltradingsymbol;
-	let qtyFreeze = 1800;
-	
-	positions["net"].forEach(el => {
-		if(!el.tradingsymbol.includes("NIFTY")) return;
-		if(el.tradingsymbol.includes("BANKNIFTY")) qtyFreeze=900;
-		if(el.quantity < 0) {
-			sellQty = sellQty + el.quantity * -1; 
-			selltradingsymbol = el.tradingsymbol;
-		}
-		if(el.quantity > 0) {
-			buyQty = buyQty + el.quantity
-			
-		}
-	})
-	if(sellQty == 0)
-	return "No short positions found to hedge";
-	if(sellQty <= buyQty)
-	return "All Hedges already present"
-
-	let sellStrike = Number(selltradingsymbol.substring(selltradingsymbol.length - 7, selltradingsymbol.length - 2))
-	
-	let cepe = selltradingsymbol.substring(selltradingsymbol.length - 2);
-	let strikeChange = 400;
-	let prefix = "NIFTY";
-	if(qtyFreeze == 900) { //bank nifty 
-		strikeChange = 600 ;
-		prefix = "BANKNIFTY";
-	}
-	if(cepe == 'PE') {
-		strikeChange = -400
-		if(qtyFreeze == 900) strikeChange = -600
-	}
-	let buyContract = prefix + getContractDate() + (sellStrike + strikeChange) + cepe;
-	let buyStrikePremium = await kc.getQuote(["NFO:" + buyContract]);
-	buyStrikePremium = Number(buyStrikePremium["NFO:" + buyContract].last_price);
-	
-	let remQty = sellQty - buyQty;
-	while(remQty > 0) {
-		let qty=0;
-		if(remQty > qtyFreeze) {
-			qty = qtyFreeze
-			remQty = remQty - qtyFreeze
-		} else {
-			qty = remQty;
-			remQty = 0;
-		}
-		try {
-			await limitOrderPlace("regular", buyStrikePremium + .05, buyContract, qty, "BUY")
-		} catch(res) {
-			console.log(res)
-			return "Got error"
-			
-		}
-		
-	}
-	return "Placed order for hedges Qty = " + (sellQty - buyQty)
-	
-}
 
 async function exitAtLoss() {
 	let positions = await kc.getPositions();
@@ -3090,9 +3037,14 @@ function checkIfIndex(name) {
 }
 
 function isMarketTimings() {
+
 	const start = moment.tz("09:00", "HH:mm", "Asia/Kolkata");
 	const end = moment.tz("15:30", "HH:mm", "Asia/Kolkata");
 	const now = moment.tz("Asia/Kolkata");
+	const dayOfWeek = now.day();
+  	if (dayOfWeek === 6 || dayOfWeek === 0) {
+    	return false; // Return false if today is Saturday or Sunday
+  	}
 	return now.isBetween(start, end);
 }
   
