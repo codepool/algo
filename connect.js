@@ -92,7 +92,7 @@ kc.setSessionExpiryHook(sessionHook);
 let maxPlatformLoss = 900000;  //hard limit, can't do trading after this limit
 let softMaxPlatformLoss = 600000; //soft limit
 let softMaxPlatformLossHit = false;
-let maxPlatformLossHit = false;
+let maxPlatformLossHit = true;
 let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
@@ -868,7 +868,8 @@ async function checkAndActivateKillSwitch(pos) {
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
 				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
 				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
-				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
+				console.log("Exiting " + el.tradingsymbo + " Qty " + qty);
+				//exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
 			})
 			await new Promise(resolve => setTimeout(resolve, 1000));
@@ -2866,7 +2867,7 @@ async function killSwitch() {
 	console.log("Opened F&O Segment Page")
 	await page.waitForTimeout(1000);
 	await page.waitForSelector('#form_segment_manage', { visible: true });
-	await page.click("label[for='NSE_FO']");
+	//await page.click("label[for='NSE_FO']");
 	await page.click("label[for='BSE_FO']");
 	await page.click(".segment-activation button")
 	await page.waitForSelector(".modal-body", { visible: true })
