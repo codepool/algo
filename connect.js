@@ -263,6 +263,8 @@ async function onTicks(ticks) {
 			}
 	
 		})
+
+
 		if(sellPos.length == 0) {
 			sellPos = [map["BANKNIFTY"]] //default subscribe bank nifty
 		}
@@ -861,6 +863,7 @@ async function checkAndActivateKillSwitch(pos) {
 	//if hard platform stop loss reached exit all positions and then do kill switch
 	try {
 		if(maxPlatformLossHit && !killSwitchActivated) {
+			console.log("Activating kill switch")
 			killSwitchActivated = true;
 			await new Promise(resolve => setTimeout(resolve, 2000)); 
 			pos["net"].forEach(async el => {
@@ -868,7 +871,7 @@ async function checkAndActivateKillSwitch(pos) {
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
 				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
 				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
-				console.log("Exiting " + el.tradingsymbol + " Qty " + qty);
+				console.log("Kill Switch Exiting " + el.tradingsymbol + " Qty " + qty);
 				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
 			})
@@ -1234,6 +1237,7 @@ app.get('/status', async (req, res) => {
 		"maxPLatformLoss": maxPlatformLoss,
 		"softMaxPLatformLoss": softMaxPlatformLoss,
 		"softMaxPLatformLossHit": softMaxPlatformLossHit,
+		"maxPlatformStopLossHit": maxPlatformLossHit,
 		"CurrentPlatformStopLoss": curPlatformLoss,
 		"pnl": pnlObject
 	})
