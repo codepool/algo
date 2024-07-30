@@ -89,7 +89,7 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 1300000;  //hard limit, can't do trading after this limit
+let maxPlatformLoss = 900000;  //hard limit, can't do trading after this limit
 let softMaxPlatformLoss = 600000; //soft limit
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
