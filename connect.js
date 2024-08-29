@@ -91,7 +91,7 @@ kc.setSessionExpiryHook(sessionHook);
 
 let maxPlatformLoss = 700000;  //hard limit, can't do trading after this limit
 let softMaxPlatformLoss = 450000; //soft limit
-let maxPlatformLoss2 = 1000000;
+let maxPlatformLoss2 = 950000;
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
 let maxPlatformLoss2Hit = false;
@@ -255,7 +255,7 @@ async function onTicks(ticks) {
 	try {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
-		//checkAndActivateKillSwitch(pos); //disabled
+		checkAndActivateKillSwitch(pos); //disabled
 		let sellPos = []
 		pos["net"].forEach(p => { 
 	
@@ -808,9 +808,9 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				let remQty = sellQty % freezeLimit;
 				
 				for (let j = 1; j<=numFreezes; j++) {  
-					let finalKc = kc;
-					if(j > 15) {
-						finalKc = kc2
+					let finalKc = (i%2) ? kc : kc2; //use 1st and 2nd key alternatively for each loop
+					if(j > 12) {
+						finalKc = (i%2) ? kc2 : kc
 					}
 					exitAtMarketPrice(tradingsymbol, freezeLimit, sellPrice, finalKc) 
 				}
@@ -819,9 +819,9 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				}
 
 				//if somehow some positions not exited due to zerodha error, check again after few sec and try exiiting again by setting exit levels again
-				checkForOpenPositions(exitLevelLogicCEPE, applicableIndex);
+				//checkForOpenPositions(exitLevelLogicCEPE, applicableIndex);
 
-				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 500 ms
+				await new Promise(resolve => setTimeout(resolve, 500)); //next loop after 500 ms
 
 			}
 	
@@ -868,17 +868,19 @@ async function checkAndActivateKillSwitch(pos) {
 	console.log("Checking kill switch logic")
 	//if hard platform stop loss reached exit all positions and then do kill switch
 	try {
-		if(maxPlatformLossHit && !killSwitchActivated) {
+		if(maxPlatformLoss2Hit && !killSwitchActivated) {
 			console.log("Activating kill switch")
 			killSwitchActivated = true;
-			await new Promise(resolve => setTimeout(resolve, 2000)); 
+			await new Promise(resolve => setTimeout(resolve, 2000));  //wait for some time
 			pos["net"].forEach(async el => {
-				//exit all positions first, both buy and sell positions
+				//exit all remaining buy positions first
+				if(el.quantity < 0) { //if any sell positions remain by mistake/error then you have to exit them manually
+					console.log("Cannot activate kill switch since sell positions are open " + el.tradingsymbol)
+					return;
+				}
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
-				let transaction_type = (el.quantity < 0) ? "BUY" : "SELL"
-				let qty = (el.quantity < 0) ? el.quantity * -1 : el.quantity
-				console.log("Kill Switch Exiting " + el.tradingsymbol + " Qty " + qty);
-				exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, transaction_type)
+				console.log("Kill Switch Exiting buy positions " + el.tradingsymbol + " Qty " + qty);
+				exitAllQtyAtMarketPrice(el.tradingsymbol, el.quantity, el.last_price, "SELL")
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
 			})
 			await new Promise(resolve => setTimeout(resolve, 1000));
