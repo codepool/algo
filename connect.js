@@ -251,7 +251,7 @@ let count = 0;
 
 async function onTicks(ticks) {
 	console.log("On Ticks")
-	
+	return;
 	try {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
@@ -927,6 +927,7 @@ function exitLevelLogic(ticks) {
 }
 
 async function getPnl(ticks) {
+	
 	let pnl = 0;
 	let pos= await kc.getPositions();
 	let symbolMap = {}
@@ -2891,6 +2892,62 @@ async function killSwitch() {
 	console.log("Closed the browser")
   
   }
+
+  getZdPnl()
+ async function getZdPnl() {
+	const browser = await puppeteer.launch({ 
+		headless: true, 
+		executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+	});
+	const page = await browser.newPage();
+	console.log("Opened browser")
+	const token = totp("6XOVLZ3UHR6ZREHBUEGQLWYAWTVLPYWG");
+	await page.goto(`https://kite.zerodha.com`, {waitUntil: "domcontentloaded"});
+    await page.waitForTimeout(1000);
+    await page.type('#userid', 'YC2151');
+    await page.type('#password', 'aerial@258G');
+    await page.click('button[type="submit"]');
+    await page.waitForTimeout(1000);
+    await page.type('input', token);
+    await page.click('button[type="submit"]');
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+	await page.waitForSelector('.tweleve button', { visible: true });
+    await page.click('.tweleve button');
+	await page.goto("https://kite.zerodha.com/positions");
+	await page.waitForTimeout(1000);
+	await page.exposeFunction('onElementChange', (newContent) => {
+        console.log('PNL :', newContent);
+    });
+	await page.evaluate(() => {
+        // Select the last element with class "text-right" inside a <tfoot>
+        const targetElement = document.querySelector('.open-positions .total div');
+
+        if (targetElement) {
+			window.onElementChange(targetElement.textContent);
+            // Create a MutationObserver to watch for changes in the target element's text content
+            const observer = new MutationObserver((mutationsList) => {
+                for (const mutation of mutationsList) {
+                    if (mutation.type === 'characterData' || mutation.type === 'childList') {
+                        // Call the Node.js function exposed to the browser
+                        window.onElementChange(targetElement.textContent);
+                    }
+                }
+            });
+
+            // Configure the observer to watch for changes in the text content of the element
+            observer.observe(targetElement, { characterData: true, childList: true, subtree: true });
+        } else {
+            console.error('Target element not found.');
+        }
+    });
+
+    console.log('Observing changes to the last .text-right element inside <tfoot>');
+
+    // Keep the browser open indefinitely
+    await new Promise(() => {}); // Keeps the script running
+
+
+ } 
 
 async function processBankNiftyAlgo(premium, cepe, premiumLimit) {
     premium = Number(premium)
