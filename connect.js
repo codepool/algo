@@ -91,11 +91,14 @@ kc.setSessionExpiryHook(sessionHook);
 
 let maxPlatformLoss = 700000;  //hard limit, can't do trading after this limit
 let softMaxPlatformLoss = 450000; //soft limit
+let maxPlatformLoss2 = 1000000;
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
+let maxPlatformLoss2Hit = false;
 let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
+let pnlLogicEnabled = true;
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
 let stoplossLevels = {};
 
@@ -252,7 +255,7 @@ async function onTicks(ticks) {
 	try {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
-		checkAndActivateKillSwitch(pos);
+		//checkAndActivateKillSwitch(pos); //disabled
 		let sellPos = []
 		pos["net"].forEach(p => { 
 	
@@ -727,9 +730,12 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				softMaxPlatformLossHit = true;
 			}
 			
-		} else {
+		} else if(!maxPlatformLossHit) {
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
 			if(pnlExit) maxPlatformLossHit = true;
+		} else {
+			pnlExit = (pnl * -1) >= maxPlatformLoss2;
+			if(pnlExit) maxPlatformLoss2Hit = true;
 		}
 
 		let exitLevelLogicCEPE;
@@ -747,10 +753,10 @@ async function pnlExitLogic(ticks, forceExit = false) {
 			
 		}		
 
-		if(levelLogic || pnlExit) {
+		if(levelLogic || (pnlExit && pnlLogicEnabled)) {
 
 			
-			console.log("PNL Exit Logic " + pnlExit + " " + "softMaxPlatformLossHit = " + softMaxPlatformLossHit + " maxPlatformLossHit = " + maxPlatformLossHit)
+			console.log("PNL Exit Logic " + pnlExit + " " + " pnlLogicEnabled = " + pnlLogicEnabled +  " softMaxPlatformLossHit = " + softMaxPlatformLossHit + " maxPlatformLossHit = " + maxPlatformLossHit)
 			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex)
 
 			if(!isMarketTimings()) {
