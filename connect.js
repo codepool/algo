@@ -795,10 +795,10 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				let cepe = tradingsymbol.substring(tradingsymbol.length - 2)
 				
 
-				if(!getUnderlying(tradingsymbol)) return; //anything else apart from nifty, bank nifty, fin etc
+				if(!getUnderlying(tradingsymbol)) continue; //anything else apart from nifty, bank nifty, fin etc
 				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
 				//also if stoploss is set on ce level while we have only pe positions just return
-				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
+				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) continue;
 				//once positions exited, reset the json for that index
 				if(posExitInProgress) return;
 				posExitInProgress = true;
