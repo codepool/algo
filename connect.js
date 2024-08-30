@@ -787,7 +787,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 					sellQty = symbolQty3
 					sellPrice = symbolPrice3;
 				}
-				if(!tradingsymbol) return;
+				if(!tradingsymbol) continue;
 				if(!pnlExit && applicableIndex != getUnderlying(tradingsymbol)) continue;
 				//if exit level logic then see whether CE should be exited or PE
 
