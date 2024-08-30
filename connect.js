@@ -899,7 +899,7 @@ async function checkAndActivateKillSwitch(pos, manual) {
 			killSwitchActivated = true;
 			pos["net"].forEach(async el => {
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
-				console.log("Kill Switch Exiting buy positions " + el.tradingsymbol + " Qty " + qty);
+				console.log("Kill Switch Exiting buy positions " + el.tradingsymbol + " Qty " + el.quantity);
 				exitAllQtyAtMarketPrice(el.tradingsymbol, el.quantity, el.last_price, "SELL")
 				await new Promise(resolve => setTimeout(resolve, 1000)); //next loop after 1 sec
 			})
