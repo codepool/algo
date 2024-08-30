@@ -757,7 +757,7 @@ async function pnlExitLogic(ticks, forceExit = false) {
 
 			
 			console.log("PNL Exit Logic " + pnlExit + " " + " pnlLogicEnabled = " + pnlLogicEnabled +  " softMaxPlatformLossHit = " + softMaxPlatformLossHit + " maxPlatformLossHit = " + maxPlatformLossHit)
-			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex)
+			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex + " posExitInProgress " + posExitInProgress)
 
 			if(!isMarketTimings()) {
 				console.log("Market Closed");
