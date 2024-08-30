@@ -107,6 +107,7 @@ let pnlObject = {};
 let peakProfit = 0;
 let pnlLogic = false;
 let exitLevelCE = {}, exitLevelPE = {};
+let posExitInProgress = false;
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -251,7 +252,6 @@ let count = 0;
 
 async function onTicks(ticks) {
 	console.log("On Ticks")
-	return;
 	try {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
@@ -800,8 +800,12 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				//also if stoploss is set on ce level while we have only pe positions just return
 				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) return;
 				//once positions exited, reset the json for that index
+				if(posExitInProgress) return;
+				posExitInProgress = true;
 				delete exitLevelCE[applicableIndex];
 				delete exitLevelPE[applicableIndex];
+				
+				
 				
 				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 				let numFreezes = parseInt(sellQty / freezeLimit);
@@ -824,6 +828,11 @@ async function pnlExitLogic(ticks, forceExit = false) {
 				await new Promise(resolve => setTimeout(resolve, 500)); //next loop after 500 ms
 
 			}
+			if(posExitInProgress) {
+				await new Promise(resolve => setTimeout(resolve, 3000)); 
+				posExitInProgress = false;
+			}
+			
 	
 		}
 
@@ -870,14 +879,22 @@ async function checkAndActivateKillSwitch(pos) {
 	try {
 		if(maxPlatformLoss2Hit && !killSwitchActivated) {
 			console.log("Activating kill switch")
-			killSwitchActivated = true;
+			let shortPositions = false;
 			await new Promise(resolve => setTimeout(resolve, 2000));  //wait for some time
 			pos["net"].forEach(async el => {
 				//exit all remaining buy positions first
 				if(el.quantity < 0) { //if any sell positions remain by mistake/error then you have to exit them manually
-					console.log("Cannot activate kill switch since sell positions are open " + el.tradingsymbol)
-					return;
+					
+					shortPositions = true;
+					
 				}
+			})
+			if(shortPositions) {
+				console.log("Cannot activate kill switch. There are short positions");
+				return;
+			}
+			killSwitchActivated = true;
+			pos["net"].forEach(async el => {
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
 				console.log("Kill Switch Exiting buy positions " + el.tradingsymbol + " Qty " + qty);
 				exitAllQtyAtMarketPrice(el.tradingsymbol, el.quantity, el.last_price, "SELL")
@@ -2893,61 +2910,6 @@ async function killSwitch() {
   
   }
 
-  getZdPnl()
- async function getZdPnl() {
-	const browser = await puppeteer.launch({ 
-		headless: true, 
-		executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	});
-	const page = await browser.newPage();
-	console.log("Opened browser")
-	const token = totp("6XOVLZ3UHR6ZREHBUEGQLWYAWTVLPYWG");
-	await page.goto(`https://kite.zerodha.com`, {waitUntil: "domcontentloaded"});
-    await page.waitForTimeout(1000);
-    await page.type('#userid', 'YC2151');
-    await page.type('#password', 'aerial@258G');
-    await page.click('button[type="submit"]');
-    await page.waitForTimeout(1000);
-    await page.type('input', token);
-    await page.click('button[type="submit"]');
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
-	await page.waitForSelector('.tweleve button', { visible: true });
-    await page.click('.tweleve button');
-	await page.goto("https://kite.zerodha.com/positions");
-	await page.waitForTimeout(1000);
-	await page.exposeFunction('onElementChange', (newContent) => {
-        console.log('PNL :', newContent);
-    });
-	await page.evaluate(() => {
-        // Select the last element with class "text-right" inside a <tfoot>
-        const targetElement = document.querySelector('.open-positions .total div');
-
-        if (targetElement) {
-			window.onElementChange(targetElement.textContent);
-            // Create a MutationObserver to watch for changes in the target element's text content
-            const observer = new MutationObserver((mutationsList) => {
-                for (const mutation of mutationsList) {
-                    if (mutation.type === 'characterData' || mutation.type === 'childList') {
-                        // Call the Node.js function exposed to the browser
-                        window.onElementChange(targetElement.textContent);
-                    }
-                }
-            });
-
-            // Configure the observer to watch for changes in the text content of the element
-            observer.observe(targetElement, { characterData: true, childList: true, subtree: true });
-        } else {
-            console.error('Target element not found.');
-        }
-    });
-
-    console.log('Observing changes to the last .text-right element inside <tfoot>');
-
-    // Keep the browser open indefinitely
-    await new Promise(() => {}); // Keeps the script running
-
-
- } 
 
 async function processBankNiftyAlgo(premium, cepe, premiumLimit) {
     premium = Number(premium)
