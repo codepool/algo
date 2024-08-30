@@ -304,7 +304,7 @@ async function onTicks(ticks) {
 		//}
 		
 		
-		await pnlExitLogic(ticks)
+		await pnlExitLogic(ticks, pos)
 	} catch(e) {
 		console.log("Error in on Ticks");
 		console.log(e);
@@ -688,9 +688,9 @@ async function autoHedgeBuyOrder(tradingsymbol, quantity, lastPrice) {
 
 
 
-async function pnlExitLogic(ticks, forceExit = false) {
+async function pnlExitLogic(ticks, pos) {
 
-	let p =  await getPnl(ticks);
+	let p =  await getPnl(ticks, pos);
 
 	let pnl = p["pnl"] ? Number(p["pnl"]) : 0;
 	let maxLossSymbol = p["maxLossSymbol"] //trading symbol which is currently running in max loss
@@ -872,15 +872,18 @@ function checkForOpenPositions(exitLevelLogicCEPE, applicableIndex) {
 		}, 2000);
 }
 
-async function checkAndActivateKillSwitch(pos) {
+async function checkAndActivateKillSwitch(pos, manual) {
 	if(!isMarketTimings()) return;
 	console.log("Checking kill switch logic")
 	//if hard platform stop loss reached exit all positions and then do kill switch
 	try {
-		if(maxPlatformLoss2Hit && !killSwitchActivated) {
+		if((maxPlatformLoss2Hit && !killSwitchActivated) || manual) {
 			console.log("Activating kill switch")
 			let shortPositions = false;
-			await new Promise(resolve => setTimeout(resolve, 2000));  //wait for some time
+			await new Promise(resolve => setTimeout(resolve, 2000));  //give  some time for positions to close
+			if(!pos) {
+				pos= await kc.getPositions(); 
+			}
 			pos["net"].forEach(async el => {
 				//exit all remaining buy positions first
 				if(el.quantity < 0) { //if any sell positions remain by mistake/error then you have to exit them manually
@@ -943,10 +946,9 @@ function exitLevelLogic(ticks) {
 	return {"cepe":cepe, "result": result, "applicableLevel": applicableLevel, "applicableIndex": applicableIndex};
 }
 
-async function getPnl(ticks) {
+async function getPnl(ticks, pos) {
 	
 	let pnl = 0;
-	let pos= await kc.getPositions();
 	let symbolMap = {}
 	//we wil store maximum 4 distinct option selling trading symbols. could be 2 CE & 2 PE
 	let maxLossSymbol; //store the maximum loss  trading symbol, We will exit that first and then the remaining symbols
@@ -1375,6 +1377,11 @@ app.post('/modifySellPrice', urlencodedParser, async (req, res) => {
 	
 	let response = await modifySellPrice(tradingsymbol, req.body.price);
 	res.send(response);
+})
+
+app.post('/activateKillSwitch', urlencodedParser, async (req, res) => {
+	checkAndActivateKillSwitch("", true)
+	res.send("Success");
 })
 
 app.get('/strikePrices', urlencodedParser, async (req, res) => {
