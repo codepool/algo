@@ -4,6 +4,7 @@ const Tesseract = require('tesseract.js');
 const {getOptionPrices} = require('./websocket.js')
 const axios = require('axios');
 const { spawn } = require('child_process');
+const Jimp = require('jimp');
 
 //const global = require("./connect")
 
@@ -34,6 +35,9 @@ const DEBUG_PORT = 9222;
 const BROWSER_URL = `http://localhost:${DEBUG_PORT}`;
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const USER_DATA_DIR = '/tmp/chrome_temp';
+const devHost = "http://localhost:3000";
+const prodHost = "https://zerodha-algo.onrender.com";
+const host = prodHost;
 
 async function run() {
  
@@ -66,10 +70,33 @@ async function run() {
   await page.goto(`https://kite.zerodha.com/chart/web/ciq/INDICES/NIFTY%20500/268041`, {waitUntil: "domcontentloaded"});
   const iframeElementHandle = await page.waitForSelector('iframe'); // Assuming there's only one iframe
   const iframe = await iframeElementHandle.contentFrame();
-  let indexInst, extractedNumber, strike, indexTick, cepe, slResponse;
+  let indexInst, extractedNumber, strike, indexTick, cepe, slResponse, indexName;
  
-  await page.exposeFunction('setStoploss', async (ceKeyPressed, peKeyPressed) => {
+  await page.exposeFunction('setStoploss', async (dataURL, ceKeyPressed, peKeyPressed) => {
   
+  
+    const tesConfig = {
+      oem: 3,
+      psm: 7, 
+      tessedit_char_whitelist: '0123456789.'
+    }
+   
+   
+    const base64Data = dataURL.replace(/^data:image\/png;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+    let image = await Jimp.read(buffer)
+   
+    image = image.resize(2 * image.bitmap.width, 2 * image.bitmap.height);
+    let p = await image.getBase64Async(Jimp.MIME_PNG);
+    
+    const { data: { text } }= await Tesseract.recognize(p, "eng")
+    console.log(">>>> text " + text)
+    
+    const number = text.match(/[-+]?\d*\.?\d+/);
+    if(!number || !number[0] || Number(number[0]) < 10000) return;
+    let extractedNumber = Number(number[0]);
+    
+    extractedNumber = trimToDigits(extractedNumber, 5)
     const formData = new URLSearchParams();
     //if(!indexTick) return;
     if(indexTick && ceKeyPressed) {
@@ -84,10 +111,10 @@ async function run() {
     formData.append('indexName', indexName);
     //console.log()
  
-    await axios.post('https://zerodha-algo.onrender.com/globalValues', formData, {
+    await axios.post(`${host}/globalValues`, formData, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded'}
     });
-    let response = await axios.get('https://zerodha-algo.onrender.com/status');
+    let response = await axios.get(`${host}/status`);
     slResponse = response.data
 
    
@@ -110,8 +137,7 @@ async function run() {
     formData.append('cepe', cepe);
     formData.append('sellQtyPercent', lots)
     formData.append('allTicks', JSON.stringify(getOptionPrices()))
-    console.log(getOptionPrices())
-    await axios.post('http://localhost:3000/sell', formData, {
+    await axios.post(`${host}/sell`, formData, {
       headers: {'Content-Type': 'application/x-www-form-urlencoded'}
     });
    
@@ -127,14 +153,17 @@ async function run() {
       formData.append('exitQtyPercent', lots)
     }
    
-    await axios.post('https://zerodha-algo.onrender.com/exitPositions', formData, {
+    await axios.post(`${host}/exitPositions`, formData, {
       headers: {'Content-Type': 'application/x-www-form-urlencoded'}
     });
    
   });
   await page.exposeFunction('handleMousemove', async (a, ceKeyPressed, peKeyPressed) => {
     const { data: { text } }= await Tesseract.recognize(a, 'eng')
+    //if number of digits < 5 before dots, just return because all indices are above 10000
+    if(parseInt(text) < 10000) return;
     extractedNumber = Number(text);
+    
     extractedNumber = trimToDigits(extractedNumber, 5)
     let divideBy = 100;
     if(indexInst == 288009) { //midcap nifty
@@ -236,7 +265,9 @@ async function run() {
        
 
       } else {
-        setStoploss(ceKeyPressed, peKeyPressed);
+        const canvas = chartContainer.querySelectorAll('canvas')[3];
+        const dataURL = canvas.toDataURL();
+        setStoploss(dataURL, ceKeyPressed, peKeyPressed);
       }
 
     });
