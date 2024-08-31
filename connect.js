@@ -873,7 +873,7 @@ function checkForOpenPositions(exitLevelLogicCEPE, applicableIndex) {
 }
 
 async function checkAndActivateKillSwitch(pos, manual) {
-	if(!isMarketTimings()) return;
+	//if(!isMarketTimings()) return;
 	console.log("Checking kill switch logic")
 	//if hard platform stop loss reached exit all positions and then do kill switch
 	try {
