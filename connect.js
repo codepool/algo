@@ -303,7 +303,7 @@ async function onTicks(ticks) {
 		//	return;
 		//}
 		
-		
+
 		await pnlExitLogic(ticks, pos)
 	} catch(e) {
 		console.log("Error in on Ticks");
@@ -825,11 +825,11 @@ async function pnlExitLogic(ticks, pos) {
 				//if somehow some positions not exited due to zerodha error, check again after few sec and try exiiting again by setting exit levels again
 				//checkForOpenPositions(exitLevelLogicCEPE, applicableIndex);
 
-				await new Promise(resolve => setTimeout(resolve, 500)); //next loop after 500 ms
+				await new Promise(resolve => setTimeout(resolve, 300)); //next loop after 500 ms
 
 			}
 			if(posExitInProgress) {
-				await new Promise(resolve => setTimeout(resolve, 3000)); 
+				await new Promise(resolve => setTimeout(resolve, 5000)); 
 				posExitInProgress = false;
 			}
 			
@@ -886,7 +886,7 @@ async function checkAndActivateKillSwitch(pos, manual) {
 			}
 			pos["net"].forEach(async el => {
 				//exit all remaining buy positions first
-				if(el.quantity < 0) { //if any sell positions remain by mistake/error then you have to exit them manually
+				if(el.quantity < 0 && getUnderlying(el.tradingsymbol)) { //if any sell positions remain by mistake/error then you have to exit them manually
 					
 					shortPositions = true;
 					
@@ -1114,7 +1114,7 @@ async function exitAllQtyAtMarketPrice( tradingsymbol, qty, price, transaction_t
 	
 	for (let j = 1; j<=numFreezes; j++) {  
 		let finalKc = kc;
-		if(j > 15) {
+		if(j > 13) {
 			finalKc = kc2
 		}
 		exitAtMarketPrice(tradingsymbol, freezeLimit, price, finalKc, transaction_type) 
@@ -1295,6 +1295,34 @@ app.post('/globalValues', urlencodedParser, async (req, res) => {
 	if(req.body.exitLevelPE) {
 		exitLevelPE[req.body.indexName] = req.body.exitLevelPE;
 	}
+
+	//set limit orders as well, one for ce , one for pe. Take highest quantity ce and use that as base
+	/*let ceSLPrice1, ceSLPrice2, peSLPrice1, peSLPrice2;
+	let ceSymbol1, ceSymbol2, peSymbol1, peSymbol2;
+	let pos = kc.getPositions();
+	pos["net"].forEach(p => {
+		if(p.quantity < 0) {
+			let cepe = el.tradingsymbol.substring(el.tradingsymbol.length - 2);
+			if(cepe == "CE" && !ceSLPrice1) {
+				ceSLPrice1 = p.last_price
+				ceSymbol1 = p.tradingsymbol
+			} else if(cepe == "CE" && !ceSLPrice2) {
+				ceSLPrice2 = p.last_price;
+				ceSymbol2 = p.tradingsymbol
+			}
+			if(cepe == "PE" && !peSLPrice1) {
+				peSLPrice1 = p.last_price
+				peSymbol1 = p.tradingsymbol
+			} else if(cepe == "PE" && !ceSLPrice2) {
+				peSLPrice2 = p.last_price;
+				peSymbol2 = p.tradingsymbol
+			}
+		}
+	})
+	addSL(ceSLPrice1, ceSymbol1);
+	addSL(ceSLPrice2, ceSymbol2);
+	addSL(peSLPrice1, peSymbol1);
+	addSL(peSLPrice2, peSymbol2);*/
 
 	res.send("Success!")
 	
@@ -1561,23 +1589,14 @@ async function modifySellPrice(tradingsymbol, newPrice) {
 
 async function addSL(triggerPrice, tradingsymbol) {
 	try {
-		tradingsymbol = await getSingleSellPos() || tradingsymbol;
-		if(!tradingsymbol) return "Enter trading symbol first"
-		
-		let positions = await kc.getPositions();
-		let sellQty = 0;
-		let payload;
-		
-		positions["net"].forEach(el => {
-			
-			if(el.quantity < 0 && el.tradingsymbol == tradingsymbol) {
-				sellQty = el.quantity * -1;
-				
-			}
-			
-		})
+		if(!triggerPrice || !tradingsymbol) return;
+
+		let exchange = "NFO";
+		if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+			exchange = "BFO"
+		}
 		let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
-		if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX") ) {
+		/*if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX") ) {
 			let numFreezes = parseInt(sellQty / freezeLimit);
 			let remQty = sellQty % freezeLimit;
 			for(let i = 1; i<=numFreezes; i++) {
@@ -1609,16 +1628,15 @@ async function addSL(triggerPrice, tradingsymbol) {
 			}
 			await kc.placeOrder("regular", payload)
 			return;
-		}
+		}*/
 		
 
-		let numIceberg = parseInt(sellQty / (10 * freezeLimit));
-		let remIceberg = sellQty % (10 * freezeLimit);
-		console.log(">>> " + remIceberg)
+		let numIceberg = parseInt(sellQty / (10 * freezeLimit)); //only max 10 legs are allowed per iceberg order
+		let remIceberg = sellQty % (10 * freezeLimit); //remaining 
 
 		for(let i = 1; i <= numIceberg; i++) {
 			payload = {
-				"exchange": "NFO",
+				"exchange": exchange,
 				"tradingsymbol": tradingsymbol,
 				"transaction_type": "BUY",
 				"quantity": 10 * freezeLimit,
@@ -1634,23 +1652,16 @@ async function addSL(triggerPrice, tradingsymbol) {
 			await kc.placeOrder("iceberg", payload)
 		}
 
-
+		let normalOrderQty = 0;
 		if(remIceberg > 0) {
 			let iceberg_legs;
 			if(remIceberg %  freezeLimit == 0) {
 				iceberg_legs = parseInt(remIceberg /freezeLimit)
 			} else {
-				iceberg_legs = parseInt(remIceberg /freezeLimit) + 1;
-			}
-			let iceberg_quantity = remIceberg / iceberg_legs;
-			if(iceberg_quantity != parseInt(iceberg_quantity)) {
-				//find nearest lot 
-				let temp  = parseInt(iceberg_quantity / getLotSize(tradingsymbol)) + 1
-				iceberg_quantity = temp * getLotSize(tradingsymbol);
-
+				normalOrderQty = remIceberg % freezeLimit;
 			}
 			payload = {
-				"exchange": "NFO",
+				"exchange": exchange,
 				"tradingsymbol": tradingsymbol,
 				"transaction_type": "BUY",
 				"quantity": remIceberg,
@@ -1660,10 +1671,26 @@ async function addSL(triggerPrice, tradingsymbol) {
 				"trigger_price": Number(triggerPrice),
 				"price": Number(triggerPrice) + getSLBuffer(tradingsymbol),
 				"iceberg_legs": iceberg_legs,
-				"iceberg_quantity": iceberg_quantity
+				"iceberg_quantity": freezeLimit
 	
 			}
 			await kc.placeOrder("iceberg", payload)
+
+			if(normalOrderQty > 0) {
+				payload = {
+					"exchange": exchange,
+					"tradingsymbol": tradingsymbol,
+					"transaction_type": "BUY",
+					"quantity": normalOrderQty,
+					"product": "NRML",
+					"order_type": "SL",
+					"validity": "DAY",
+					"trigger_price": Number(triggerPrice),
+					"price": Number(triggerPrice) + getSLBuffer(tradingsymbol)
+				}
+				await kc.placeOrder("iceberg", payload)
+	
+			}
 		}
 		
 
@@ -1951,13 +1978,13 @@ function getLotSize(tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKNIFTY")) {
 		return 15;
 	} else if(tradingsymbol.startsWith("NIFTY")) {
-		return 50;
+		return 25;
 		
 	} else if(tradingsymbol.startsWith("MIDCP")) {
-		return 75;
+		return 50;
 		
 	} else if(tradingsymbol.startsWith("FINNIFTY")) {
-		return 40;
+		return 25;
 	} else if(tradingsymbol.startsWith("SENSEX")) {
 		return 10;
 	} else if(tradingsymbol.startsWith("BANKEX")) {
@@ -1987,10 +2014,10 @@ function getSLValue(symbol) {
 
 function getSLBuffer(symbol) {
 	
-	let buffer = 2; //midcap & nifty
+	let buffer = 10; 
 			
 	
-	if(symbol.startsWith("BANKNIFTY")) {
+	/*if(symbol.startsWith("BANKNIFTY")) {
 		buffer = 3;
 	}
 	if(symbol.startsWith("SENSEX") || symbol.startsWith("BANKEX")) {
@@ -2000,7 +2027,7 @@ function getSLBuffer(symbol) {
 	if(symbol.startsWith("FINNIFTY")) {
 		buffer = 2;
 		
-	}
+	}*/
 	return buffer;
 }
 
@@ -2023,9 +2050,7 @@ async function stoplossOrderPlace(price, tradingsymbol, qty, finalKc, attempts =
 			"trigger_price": price,
 			"price": price + getSLBuffer(tradingsymbol),
 			"validity": "DAY",
-			
-			
-			
+	
 		}
 		console.log(payload)
 		try {
