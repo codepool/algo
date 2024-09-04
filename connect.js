@@ -261,6 +261,7 @@ async function onTicks(ticks) {
 		let pos= await kc.getPositions();
 		//checkAndActivateKillSwitch(pos); //disabled
 		let sellPos = []
+		let haveShortPos = false;
 		pos["net"].forEach(p => { 
 	
 			if(p.quantity != 0 && getUnderlying(p.tradingsymbol)) {
@@ -268,6 +269,7 @@ async function onTicks(ticks) {
 				//also push the underlying instrument for level exit logic
 				sellPos.push(map[getUnderlying(p.tradingsymbol)])
 			}
+			if(p.quantity < 0 && getUnderlying(p.tradingsymbol)) haveShortPos = true;
 	
 		})
 
@@ -280,7 +282,7 @@ async function onTicks(ticks) {
 		ticker.unsubscribe(subscribeItems)
 		ticker.subscribe(sellPos);
 		subscribeItems = sellPos;
-		if(ticks[0]["instrument_token"] == map["BANKNIFTY"]) {
+		if(!haveShortPos) {
 			console.log("No open short positions.")
 			return;
 		}
