@@ -20,7 +20,11 @@ const { Mutex } = require('async-mutex');
 const functionMutex = new Mutex();
 const moment = require('moment-timezone');
 
-
+/*logic
+1)before level exit logic executred to exit position, check if latest option price < SL trigger - 2/3
+if yes, cancel SL order and let level order flow, otherwise skip level exit logic
+2) in ontrade check if SL order triggered, if triggered, set levels to 0 and also set a variable so level logic does not execute
+*/
 const wss = new WebSocket.Server({ noServer: true });
 const startTime = moment('9:15 AM', 'h:mm A');
 const endTime = moment('3:30 PM', 'h:mm A');
@@ -89,25 +93,25 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 700000;  //hard limit, can't do trading after this limit
-let softMaxPlatformLoss = 450000; //soft limit
-let maxPlatformLoss2 = 950000;
+let maxPlatformLoss = 600000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 400000; //soft limit
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
-let maxPlatformLoss2Hit = false;
 let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 let pnlLogicEnabled = true;
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
 let stoplossLevels = {};
+let maxPnl = 0;
+let maxPnlThreshold = 150000
 
 let currentTicks;
 let pnlObject = {};
 let peakProfit = 0;
 let pnlLogic = false;
 let exitLevelCE = {}, exitLevelPE = {};
-let posExitInProgress = false;
+let slOrders = [];
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -255,7 +259,7 @@ async function onTicks(ticks) {
 	try {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
-		checkAndActivateKillSwitch(pos); //disabled
+		//checkAndActivateKillSwitch(pos); //disabled
 		let sellPos = []
 		pos["net"].forEach(p => { 
 	
@@ -360,13 +364,36 @@ async function fn2(i) {
 async function onTrade(order) {
 	
 	try {
+
+		if(order.order_type == 'SL' && order.status == 'TRIGGER PENDING') {
+			if(!slOrders.some(item => item.order_id === order.order_id)) {
+				slOrders.push(order); //store all sl order ids
+			} 
+		}
+		else if(order.order_type == 'LIMIT' && order.status == 'OPEN' && order.transaction_type == 'BUY') { //when sl order is triggered
+			if(slOrders.some(item => item.order_id === order.order_id)) return; //if the SL is triggered then proceed
+
+			slOrders = slOrders.filter(item => item.order_id !== order.order_id);
+			let index = getUnderlying(order.tradingsymbol);
+			if(!index) return;
+			let cepe = order.tradingsymbol.substring(order.tradingsymbol.length - 2);
+			if(cepe == "CE") delete exitLevelCE[index];
+			else delete exitLevelPE[index];
+
+		} else if(order.order_type == 'SL' && order.status == 'CANCELLED') {
+			slOrders = slOrders.filter(item => item.order_id !== order.order_id);
+		}
 		
-		/*
+		/*if(order.order_type == 'SL' && order.status == 'CANCELLED') {
+			slOrders = slOrders.filter(item => item.order_id !== order.order_id);
+		}
+		
+		
 		1) Create SLs automatically on creating sell positions. Cancel SLs automatically on exiting positions
 		2) Buy Hedges automatically. Wont sell them automatically though
 		3) Exit Sell Positions when cancelling any SL trigger
 
-		*/
+		
 		console.log(order)
 		let slModified = false
 
@@ -385,7 +412,7 @@ async function onTrade(order) {
 			}
 			if(remQty > 0) {
 				exitAtMarketPrice(tradingsymbol, remQty, kc)
-			}*/
+			}
 
 		}
 	
@@ -498,7 +525,7 @@ async function onTrade(order) {
 				if(o.order_type =='SL' && o.status == 'TRIGGER PENDING') {
 					totalSLQty += o.quantity;
 				}
-			});*/
+			});
 			
 			if(totalSLQty[order.tradingsymbol] <=  totalSellPos * -1)  {
 				console.log("Trigger Quantity is less than Sell Qty")
@@ -508,10 +535,11 @@ async function onTrade(order) {
 			await cancelTrigger(order);
 			
 
-		}
+		} */
+
 	} catch(e) {
 		console.log(e)
-	}
+	} 
 
 }
 
@@ -720,6 +748,15 @@ async function pnlExitLogic(ticks, pos) {
 	
 	pnlObject = p;
 	console.log(p)
+	if(pnl > maxPnl) {
+		maxPnl = pnl;
+	}
+	if(maxPnl > maxPnlThreshold) {
+		softMaxPlatformLoss = 0; //if 1.5 Lac achieved then loss cannot go below 0
+	}
+	if(pnl * -1 >= 100000) { //if loss is reovered then reset soft loss limit
+		softMaxPlatformLossHit = false;
+	}
 
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
@@ -733,9 +770,6 @@ async function pnlExitLogic(ticks, pos) {
 		} else if(!maxPlatformLossHit) {
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
 			if(pnlExit) maxPlatformLossHit = true;
-		} else {
-			pnlExit = (pnl * -1) >= maxPlatformLoss2;
-			if(pnlExit) maxPlatformLoss2Hit = true;
 		}
 
 		let exitLevelLogicCEPE;
@@ -753,11 +787,11 @@ async function pnlExitLogic(ticks, pos) {
 			
 		}		
 
-		if(levelLogic || (pnlExit && pnlLogicEnabled)) {
+		if((levelLogic || pnlExit) && !posExitInprogress) {
 
 			
 			console.log("PNL Exit Logic " + pnlExit + " " + " pnlLogicEnabled = " + pnlLogicEnabled +  " softMaxPlatformLossHit = " + softMaxPlatformLossHit + " maxPlatformLossHit = " + maxPlatformLossHit)
-			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex + " posExitInProgress " + posExitInProgress)
+			console.log("Level Exit Logic " + levelLogic + " Level Broken = " + applicableLevel + " " + exitLevelLogicCEPE + " " + "applicable index " + applicableIndex)
 
 			if(!isMarketTimings()) {
 				console.log("Market Closed");
@@ -799,13 +833,9 @@ async function pnlExitLogic(ticks, pos) {
 				//for Level logic, if we have CE and PE both, exit both because once the loss level breaks, opposite side will be in highest profit
 				//also if stoploss is set on ce level while we have only pe positions just return
 				if(levelLogic && onlyCEorPE && exitLevelLogicCEPE && cepe != exitLevelLogicCEPE) continue;
-				//once positions exited, reset the json for that index
-				if(posExitInProgress) return;
-				posExitInProgress = true;
 				delete exitLevelCE[applicableIndex];
 				delete exitLevelPE[applicableIndex];
-				
-				
+				posExitInprogress = true;
 				
 				let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
 				let numFreezes = parseInt(sellQty / freezeLimit);
@@ -827,10 +857,6 @@ async function pnlExitLogic(ticks, pos) {
 
 				await new Promise(resolve => setTimeout(resolve, 300)); //next loop after 500 ms
 
-			}
-			if(posExitInProgress) {
-				await new Promise(resolve => setTimeout(resolve, 5000)); 
-				posExitInProgress = false;
 			}
 			
 	
@@ -879,6 +905,7 @@ async function checkAndActivateKillSwitch(pos, manual) {
 	try {
 		if((maxPlatformLoss2Hit && !killSwitchActivated) || manual) {
 			console.log("Activating kill switch")
+			killSwitchActivated = true;
 			let shortPositions = false;
 			await new Promise(resolve => setTimeout(resolve, 2000));  //give  some time for positions to close
 			if(!pos) {
@@ -896,7 +923,6 @@ async function checkAndActivateKillSwitch(pos, manual) {
 				console.log("Cannot activate kill switch. There are short positions");
 				return;
 			}
-			killSwitchActivated = true;
 			pos["net"].forEach(async el => {
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
 				console.log("Kill Switch Exiting buy positions " + el.tradingsymbol + " Qty " + el.quantity);
@@ -1280,6 +1306,7 @@ app.get('/logic', async (req, res) => {
 
 app.post('/globalValues', urlencodedParser, async (req, res) => {
 	
+	posExitInprogress = false;
 	if(req.body.peakProfit) {
 		peakProfit = req.body.peakProfit;
 		
@@ -1301,8 +1328,8 @@ app.post('/globalValues', urlencodedParser, async (req, res) => {
 	let ceSymbol1, ceSymbol2, peSymbol1, peSymbol2;
 	let pos = kc.getPositions();
 	pos["net"].forEach(p => {
-		if(p.quantity < 0) {
-			let cepe = el.tradingsymbol.substring(el.tradingsymbol.length - 2);
+		if(p.quantity < 0 && getUnderlying(tradingsymbol)) {
+			let cepe = p.tradingsymbol.substring(p.tradingsymbol.length - 2);
 			if(cepe == "CE" && !ceSLPrice1) {
 				ceSLPrice1 = p.last_price
 				ceSymbol1 = p.tradingsymbol
