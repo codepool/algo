@@ -905,7 +905,7 @@ async function checkAndActivateKillSwitch(pos, manual) {
 	console.log("Checking kill switch logic")
 	//if hard platform stop loss reached exit all positions and then do kill switch
 	try {
-		if((maxPlatformLoss2Hit && !killSwitchActivated) || manual) {
+		if((!killSwitchActivated) || manual) {
 			console.log("Activating kill switch")
 			killSwitchActivated = true;
 			let shortPositions = false;
