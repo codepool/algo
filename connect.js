@@ -101,6 +101,7 @@ let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 let pnlLogicEnabled = true;
+let slTrailed = false;
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
 let stoplossLevels = {};
 let maxPnl = 0;
@@ -752,26 +753,32 @@ async function pnlExitLogic(ticks, pos) {
 	console.log(p)
 	if(pnl > maxPnl) {
 		maxPnl = pnl;
+		
 	}
-	if(maxPnl > maxPnlThreshold) {
-		softMaxPlatformLoss = 0; //if 1.5 Lac achieved then loss cannot go below 0
-	}
-	if(pnl * -1 >= 100000) { //if loss is reovered then reset soft loss limit
+	if(pnl > maxPnlThreshold) slTrailed = false;
+	if(softMaxPlatformLossHit && pnl >= -1 * (softMaxPlatformLoss/2)) { //if loss is reovered then reset soft loss flag
 		softMaxPlatformLossHit = false;
 	}
 
 	try {
 		//exit position if patform loss is exceeded. First exit the position which has max loss value
 		let pnlExit = false;
-		if(!softMaxPlatformLossHit) {
+		if(maxPnl > maxPnlThreshold && pnl <=0 && !slTrailed) {
+			pnlExit = true;  // trail stoploss if alreasdy reached certail level of profit
+			slTrailed = true;
+		} else if(!softMaxPlatformLossHit) {
 			pnlExit = (pnl * -1) >= softMaxPlatformLoss;
+			
 			if(pnlExit) {
 				softMaxPlatformLossHit = true;
 			}
 			
-		} else if(!maxPlatformLossHit) {
+		} else {
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
-			if(pnlExit) maxPlatformLossHit = true;
+			if(pnlExit) {
+				maxPlatformLossHit = true;
+				checkAndActivateKillSwitch(pos);
+			}
 		}
 
 		let exitLevelLogicCEPE;
@@ -909,7 +916,7 @@ async function checkAndActivateKillSwitch(pos, manual) {
 			console.log("Activating kill switch")
 			killSwitchActivated = true;
 			let shortPositions = false;
-			await new Promise(resolve => setTimeout(resolve, 2000));  //give  some time for positions to close
+			await new Promise(resolve => setTimeout(resolve, 10000));  //give  some time for positions to close
 			if(!pos) {
 				pos= await kc.getPositions(); 
 			}
