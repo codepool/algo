@@ -116,7 +116,6 @@ async function run() {
     });
     let response = await axios.get(`${host}/status`);
     slResponse = response.data
-
    
     await iframe.evaluate((r, indexName) => { 
       const stoplossLineCE = document.querySelector('#stoplossLineCE');
@@ -358,7 +357,8 @@ async function run() {
     const parts = url.split('/');
     indexInst = parts[parts.length - 1];
     indexName = indexMap[indexInst]
-
+    let response = await axios.get(`${host}/status`);
+    slResponse = response.data
     //show respective index's stop loss levels
     await iframe.evaluate((r, indexName) => { 
       const stoplossLineCE = document.querySelector('#stoplossLineCE');

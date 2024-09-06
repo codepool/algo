@@ -101,7 +101,7 @@ let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
 let trailSL = .15 * maxPlatformLoss; // for every X profit trail the platfrom loss limit
 let pnlLogicEnabled = true;
-let slTrailed = false;
+let slTrailed = true;
 // 4 stop losses assuming 2 for pe ce and 2 for 2 instruments being traded in one day only
 let stoplossLevels = {};
 let maxPnl = 0;
@@ -755,6 +755,7 @@ async function pnlExitLogic(ticks, pos) {
 		maxPnl = pnl;
 		
 	}
+	console.log("Max pnl = " + maxPnl)
 	if(pnl > maxPnlThreshold) slTrailed = false;
 	if(softMaxPlatformLossHit && pnl >= -1 * (softMaxPlatformLoss/2)) { //if loss is reovered then reset soft loss flag
 		softMaxPlatformLossHit = false;
