@@ -93,8 +93,8 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 800000;  //hard limit, can't do trading after this limit
-let softMaxPlatformLoss = 400000; //soft limit
+let maxPlatformLoss = 500000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 300000; //soft limit
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
 let killSwitchActivated = false;
@@ -778,7 +778,7 @@ async function pnlExitLogic(ticks, pos) {
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
 			if(pnlExit) {
 				maxPlatformLossHit = true;
-				checkAndActivateKillSwitch(pos);
+				checkAndActivateKillSwitch();
 			}
 		}
 
@@ -908,7 +908,7 @@ function checkForOpenPositions(exitLevelLogicCEPE, applicableIndex) {
 		}, 2000);
 }
 
-async function checkAndActivateKillSwitch(pos, manual) {
+async function checkAndActivateKillSwitch(manual) {
 	if(!isMarketTimings()) return;
 	console.log("Checking kill switch logic")
 	//if hard platform stop loss reached exit all positions and then do kill switch
@@ -917,10 +917,8 @@ async function checkAndActivateKillSwitch(pos, manual) {
 			console.log("Activating kill switch")
 			killSwitchActivated = true;
 			let shortPositions = false;
-			await new Promise(resolve => setTimeout(resolve, 10000));  //give  some time for positions to close
-			if(!pos) {
-				pos= await kc.getPositions(); 
-			}
+			await new Promise(resolve => setTimeout(resolve, 8000));  //give  some time for short positions to close
+			let pos= await kc.getPositions(); 
 			pos["net"].forEach(async el => {
 				//exit all remaining buy positions first
 				if(el.quantity < 0 && getUnderlying(el.tradingsymbol)) { //if any sell positions remain by mistake/error then you have to exit them manually
@@ -1445,7 +1443,7 @@ app.post('/modifySellPrice', urlencodedParser, async (req, res) => {
 })
 
 app.post('/activateKillSwitch', urlencodedParser, async (req, res) => {
-	checkAndActivateKillSwitch("", true)
+	checkAndActivateKillSwitch(true)
 	res.send("Success");
 })
 
