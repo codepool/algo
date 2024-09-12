@@ -93,8 +93,8 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 800000;  //hard limit, can't do trading after this limit
-let softMaxPlatformLoss = 650000; //soft limit
+let maxPlatformLoss = 600000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 400000; //soft limit
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
 let killSwitchActivated = false;
@@ -778,7 +778,7 @@ async function pnlExitLogic(ticks, pos) {
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
 			if(pnlExit) {
 				maxPlatformLossHit = true;
-				//checkAndActivateKillSwitch();
+				checkAndActivateKillSwitch();
 			}
 		}
 
@@ -797,6 +797,7 @@ async function pnlExitLogic(ticks, pos) {
 			
 		}		
 
+		console.log("posExitInprogress = " + posExitInprogress)
 		if((levelLogic || pnlExit) && !posExitInprogress) {
 
 			
@@ -915,8 +916,8 @@ async function checkAndActivateKillSwitch(manual) {
 	try {
 		if((!killSwitchActivated) || manual) {
 			console.log("Activating kill switch")
-			killSwitchActivated = true;
 			let shortPositions = false;
+			let totalLongPositions = 0;
 			await new Promise(resolve => setTimeout(resolve, 6000));  //give  some time for short positions to close
 			let pos= await kc.getPositions(); 
 			pos["net"].forEach(async el => {
@@ -926,11 +927,16 @@ async function checkAndActivateKillSwitch(manual) {
 					shortPositions = true;
 					
 				}
+				if(el.quantity > 0 && getUnderlying(el.tradingsymbol)) {
+					totalLongPositions = totalLongPositions + el.quantity;
+				}
 			})
 			if(shortPositions) {
 				console.log("Cannot activate kill switch. There are short positions");
 				return;
 			}
+			killSwitchActivated = true;
+			console.log("Kill Switch total long positions = " + totalLongPositions)
 			pos["net"].forEach(async el => {
 				if(el.quantity == 0 || !getUnderlying(el.tradingsymbol)) return;
 				console.log("Kill Switch Exiting buy positions " + el.tradingsymbol + " Qty " + el.quantity);
