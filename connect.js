@@ -113,6 +113,7 @@ let peakProfit = 0;
 let pnlLogic = false;
 let exitLevelCE = {}, exitLevelPE = {};
 let slOrders = [];
+let posExitInprogress;
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
