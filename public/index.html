@@ -98,8 +98,14 @@ $(document).ready(function(){
       let maxPlatformLoss = $("#maxPlatformLoss").val();
       let exitLevelCE = $("#exitLevelCE").val();
       let exitLevelPE = $("#exitLevelPE").val();
+      let indexName =  $('#indexName').val();
+      if(!indexName) {
+        alert("Please select index first")
+        return;
+      }
+     
       
-      $.post(`${url}globalValues`, {"peakProfit": peakProfit,  "maxPlatformLoss": maxPlatformLoss, "exitLevelCE": exitLevelCE, "exitLevelPE": exitLevelPE }, function(response){
+      $.post(`${url}globalValues`, {"peakProfit": peakProfit,  "maxPlatformLoss": maxPlatformLoss, "exitLevelCE": exitLevelCE, "exitLevelPE": exitLevelPE, "indexName": indexName }, function(response){
          
           alert(response)
       })
@@ -323,6 +329,15 @@ input {
 <div class ="segment">
   <label> Peak Profit</label> <input type="text" id="peakProfit" inputmode="numeric"> 
   <label> Max Platform Loss </label> <input type="text" id="maxPlatformLoss" inputmode="numeric"> 
+  <select id="indexName">
+    <option value="">-Select-</option>
+    <option value="NIFTY">NIFTY</option>
+    <option value="BANKNIFTY">BANKNIFTY</option>
+    <option value="FINNIFTY">FINNIFTY</option>
+    <option value="SENSEX">Sensex</option>
+    <option value="BANKEX">Bankex</option>
+    <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+  </select>
   <label> Exit Level PE </label> <input type="text" id="exitLevelPE" inputmode="numeric"> 
   <label> Exit Level CE </label> <input type="text" id="exitLevelCE" inputmode="numeric"> 
   <button type="button" id="button111" style="margin-top:15px">Submit</button>
