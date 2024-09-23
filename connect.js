@@ -93,9 +93,9 @@ let  kc = new KiteConnect(options);
 let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
-let maxPlatformLoss = 1500000;  //hard limit, can't do trading after this limit
-let softMaxPlatformLoss = 300000; //soft limit
-let softMaxPlatformLossHit = true;
+let maxPlatformLoss = 450000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 280000; //soft limit
+let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
 let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
@@ -919,7 +919,7 @@ async function checkAndActivateKillSwitch(manual) {
 			console.log("Activating kill switch")
 			let shortPositions = false;
 			let totalLongPositions = 0;
-			await new Promise(resolve => setTimeout(resolve, 6000));  //give  some time for short positions to close
+			await new Promise(resolve => setTimeout(resolve, 4000));  //give  some time for short positions to close
 			let pos= await kc.getPositions(); 
 			pos["net"].forEach(async el => {
 				//exit all remaining buy positions first
