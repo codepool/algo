@@ -1,11 +1,11 @@
-const puppeteer = require('puppeteer-extra');
+const puppeteer = require('puppeteer');
 const totp = require("totp-generator");
 const Tesseract = require('tesseract.js');
 const {getOptionPrices} = require('./websocket.js')
 const axios = require('axios');
 const { spawn } = require('child_process');
 const Jimp = require('jimp');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const sharp = require('sharp');
 
 //const global = require("./connect")
 
@@ -38,12 +38,11 @@ const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrom
 const USER_DATA_DIR = '/tmp/chrome_temp';
 const devHost = "http://localhost:3000";
 const prodHost = "https://zerodha-algo.onrender.com";
-const host = prodHost;
+const host = devHost;
 
 async function run() {
  
   //run browser in debug mode if not running
-  puppeteer.use(StealthPlugin());
   const running = await isBrowserRunning(BROWSER_URL);
   if (!running) {
     console.log("Browser not running. Launching Browser")
@@ -52,25 +51,16 @@ async function run() {
  
   const browser = await puppeteer.connect({
     browserURL: 'http://localhost:9222', // URL of the remote debugging interface
-    headless: false,
-    args: ['--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
+    headless: false
   });
  
   const page = await browser.newPage(); // Open a new page
-  await page.setRequestInterception(true);
-
-  page.on('request', request => {
-  const headers = request.headers();
-  if (headers['Content-Security-Policy']) {
-    delete headers['Content-Security-Policy'];  // Remove CSP header
-  }
-  request.continue({ headers });
-});
 
   let logoutScreen = false;
   page.on('framenavigated', async frame => {
     
-    if (frame != page.mainFrame()) return;
+    if (frame != page.mainFrame()) return;   
+
     const url = frame.url();
     const parts = url.split('/');
     
@@ -97,12 +87,11 @@ async function run() {
    
     const base64Data = dataURL.replace(/^data:image\/png;base64,/, "");
     const buffer = Buffer.from(base64Data, 'base64');
-    let image = await Jimp.read(buffer)
-   
-    image = image.resize(2 * image.bitmap.width, 2 * image.bitmap.height);
-    let p = await image.getBase64Async(Jimp.MIME_PNG);
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
+    let resizedImageBuffer = await image.resize({ width: 2 * metadata.width, height: 2 * metadata.height }).toBuffer();
     
-    const { data: { text } }= await Tesseract.recognize(p, "eng")
+    const { data: { text } }= await Tesseract.recognize(resizedImageBuffer, "eng")
     console.log(">>>> text " + text)
     
     const number = text.match(/[-+]?\d*\.?\d+/);
@@ -163,6 +152,8 @@ async function run() {
     formData.append('strike', strike);
     formData.append('instrument', indexMap[indexInst]);
     formData.append('cepe', cepe);
+    formData.append('exitHedges', true);
+    formData.append('allTicks', JSON.stringify(getOptionPrices()))
     if(lots) { //no lots if exiting full qty
       formData.append('exitQtyPercent', lots)
     }

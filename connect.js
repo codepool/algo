@@ -286,7 +286,7 @@ async function onTicks(ticks) {
 		ticker.subscribe(sellPos);
 		subscribeItems = sellPos;
 		if(!haveShortPos) {
-			console.log("No open short positions.")
+			//console.log("No open short positions.")
 			return;
 		}
 		
@@ -1386,7 +1386,7 @@ app.post('/buyHedges', urlencodedParser, async (req, res) => {
 
 app.post('/exitPositions', urlencodedParser, async (req, res) => {
 	let tradingsymbol = calculateTradingSymbol(req.body.strike, req.body.instrument, req.body.cepe)
-	let response = await exitPositions(tradingsymbol, req.body.exitPrice, req.body.exitQtyPercent)
+	let response = await exitPositions(tradingsymbol, req.body.exitPrice, req.body.exitQtyPercent, req.body.exitHedges, req.body.allTicks)
 	res.send(response)
 })
 
@@ -1849,17 +1849,17 @@ async function exitAtMarket(tradingsymbol) {
 
 function getHedgesStrikeDiff(tradingsymbol) {
 	if(tradingsymbol.startsWith("BANKNIFTY")) {
-		return 1000;
-	} else if(tradingsymbol.startsWith("NIFTY")) {
-		return 700;
-	} else if(tradingsymbol.startsWith("MIDCP")) {
 		return 400;
+	} else if(tradingsymbol.startsWith("NIFTY")) {
+		return 200;
+	} else if(tradingsymbol.startsWith("MIDCP")) {
+		return 100;
 	} else if(tradingsymbol.startsWith("FINNIFTY")) {
-		return 700;
+		return 200;
 	} else if(tradingsymbol.startsWith("SENSEX")) {
-		return 1200;
+		return 400;
 	} else if(tradingsymbol.startsWith("BANKEX")) {
-		return 1200;
+		return 400;
 	}
 }
 
@@ -2257,6 +2257,7 @@ function getHedgeTradingsymbol(tradingsymbol, allTicks) {
 	let hedgeTradingSymbolFound = false;
 	let strike = getStrike(tradingsymbol)["strike"];
 	
+	
 	if(isCE) {
 		let prevTick;
 		
@@ -2265,15 +2266,19 @@ function getHedgeTradingsymbol(tradingsymbol, allTicks) {
 			if(tick.tradingsymbol.substring(tick.tradingsymbol.length - 2) != 'CE') return;
 			if(getStrike(tradingsymbol)["prefix"] != getStrike(tick.tradingsymbol)["prefix"]) return; //both should belong to same expiry
 			if(tick.strike <= strike) return;
-			if(tick.strike - strike > getHedgesStrikeDiff(tradingsymbol)) return;
+			/*if(tick.strike - strike > getHedgesStrikeDiff(tradingsymbol)) return;
 			if(prevTick == undefined) prevTick = tick;
 			if(prevTick.last_price - tick.last_price > 0 &&  prevTick.last_price - tick.last_price < .4) {
 				hedgeTradingSymbol = prevTick.tradingsymbol;
 				hedgeTradingSymbolFound = true;
 
 			} 
-			prevTick = tick;
-			if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
+			prevTick = tick;*/
+			
+			if(tick.strike == strike + getHedgesStrikeDiff(tradingsymbol)) {
+				hedgeTradingSymbol = tick.tradingsymbol;
+			}
+			//if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
 		})
 		return hedgeTradingSymbol;
 	} else {
@@ -2283,17 +2288,19 @@ function getHedgeTradingsymbol(tradingsymbol, allTicks) {
 			if(tick.tradingsymbol.substring(tick.tradingsymbol.length - 2) != 'PE') return;
 			if(getStrike(tradingsymbol)["prefix"] != getStrike(tick.tradingsymbol)["prefix"]) return; //both should belong to same expiry
 			if(tick.strike >= strike) return;
-			if(strike - tick.strike > getHedgesStrikeDiff(tradingsymbol)) return;
+			/*if(strike - tick.strike > getHedgesStrikeDiff(tradingsymbol)) return;
 			if(prevTick == undefined) prevTick = tick;
 			if(prevTick.last_price - tick.last_price > 0 &&  prevTick.last_price - tick.last_price < .4) {
 				hedgeTradingSymbol = prevTick.tradingsymbol;
 				hedgeTradingSymbolFound = true;
 
 			} 
-			prevTick = tick;
-			if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
+			prevTick = tick;*/
+			if(tick.strike == strike - getHedgesStrikeDiff(tradingsymbol)) {
+				hedgeTradingSymbol = tick.tradingsymbol;
+			}
+			//if(!hedgeTradingSymbolFound) hedgeTradingSymbol = tick.tradingsymbol; //if no symbol with diff < .4 then just choose last one
 		})
-		console.log(">>>>> pe " + hedgeTradingSymbol)
 		return hedgeTradingSymbol;
 	}
 	
@@ -2303,6 +2310,7 @@ function getHedgeTradingsymbol(tradingsymbol, allTicks) {
 async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, allTicks) {
 	
 	 //numLegs = no of freezes you want to purchase (eg for nifty id leg =2, means qty = 1800 * 2)
+	
 	try {
 	
 	if(!tradingsymbol)	{
@@ -2333,6 +2341,7 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, 
 		}
 	})
 	let hedgeTradingsymbol = hedgeTradingsymbol1 || getHedgeTradingsymbol(tradingsymbol, allTicks);
+	console.log("hedgeTradingsymbol " + hedgeTradingsymbol)
 
 	if(buyQty > 0 && (sellQty1 + numLegs * freezeLimit) <= buyQty) {
 		//sell remaining positions directly, hedges are not required since they are already there
@@ -2363,7 +2372,7 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, 
 
 	
 	
-	let sellQty = 0; //allowable sell qty based on available margin
+	/*let sellQty = 0; //allowable sell qty based on available margin
 	let numLegs1 = numLegs;
 
 	//try 5 times
@@ -2391,7 +2400,7 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, 
 
 	}
 
-	/*let totalQty = 0;
+	let totalQty = 0;
 	let availableMargin = await getAvailableMargin()
 	let start  = 12;
 	if(availableMargin > 10000000 && availableMargin < 15000000) {
@@ -2419,14 +2428,14 @@ async function sellPositions(tradingsymbol, numLegs, price, withoutHedgesFirst, 
 
 	if(totalQty < sellQty) {
 		sellQty = totalQty;
-	}*/
+	}
 	
 	if(sellQty <= 0) {
 		console.log("No margin available to sell")
 		return "No margin available to sell";
-	}
+	} */
 	
-	await placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol, sellQty, price, freezeLimit, numLegs1);
+	await placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol, freezeLimit * numLegs, price, freezeLimit, numLegs);
 	
 	} catch(e) {
 		console.log(e);
@@ -2444,6 +2453,7 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 		//place hedge orders at market price first and place sell limit order (buy only remaining hedges if needed)
 		
 		buyHedgesEqualToSell(tradingsymbol, hedgeTradingsymbol, totalQty)
+		await new Promise(resolve => setTimeout(resolve, 1000));
 
 		//now start with sell Positions
 
@@ -2557,16 +2567,16 @@ async function buyHedgesEqualToSell(tradingsymbol, totalQty) {
 }
 
 
-async function exitPositions(tradingsymbol, price, numLegs) {
+async function exitPositions(tradingsymbol, price, numLegs, exitHedges = false, allTicks) {
 	
 	try {
 		
-		console.log("exit " + tradingsymbol + " "+ price + " " + numLegs)
+		console.log("exit " + tradingsymbol + " numLegs " + numLegs + " exithedges " + exitHedges)
 		//tradingsymbol = await getSingleSellPos() || tradingsymbol;
 		//if(!tradingsymbol) return "Enter trading symbol first"
 		let positions = await kc.getPositions();
 		let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
-		let sellQty; let sellTradingSymbol;
+		/*let sellQty; let sellTradingSymbol;
 		let min = 1000000
 		positions["net"].forEach(el => {
 			//exit that trading symbol that nearer to strike 
@@ -2582,22 +2592,38 @@ async function exitPositions(tradingsymbol, price, numLegs) {
 		if(numLegs && (numLegs * freezeLimit <= sellQty)) {
 			sellQty = numLegs * freezeLimit;
 		}
-
+		*/
 		
 		let numFreezes = parseInt(sellQty / freezeLimit);
-		let remQty = sellQty % freezeLimit;
+		//let remQty = sellQty % freezeLimit;
 		
-		for (let j = 1; j<=numFreezes; j++) {  
+		for (let j = 1; j<=numLegs; j++) {  
 			let finalKc = kc;
 			if(j > 15) {
 				finalKc = kc2
 			}
-			exitAtMarketPrice(sellTradingSymbol, freezeLimit, 0, finalKc) 
+			exitAtMarketPrice(tradingsymbol, freezeLimit, 0, finalKc) 
 		}
-		if(remQty > 0) {
+		/*if(remQty > 0) {
 			exitAtMarketPrice(sellTradingSymbol, remQty, 0, kc)
-		}
+		}*/
 
+		if(exitHedges) {
+			//exit hedge as well
+
+			let hedgeTradingSymbol = getHedgeTradingsymbol(tradingsymbol, allTicks)
+			console.log("exit hedgeTradingSymbol " + hedgeTradingSymbol);
+			if(!hedgeTradingSymbol) return;
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			positions["net"].forEach(el => {
+				if(el.tradingsymbol == hedgeTradingSymbol) {
+					let freezeLimit =  getFreezeLimit(getStrike(hedgeTradingSymbol)["strike"], hedgeTradingSymbol);
+					let qty = (freezeLimit * numLegs) > el.quantity ? el.quantity : freezeLimit * numLegs
+					exitAllQtyAtMarketPrice(el.tradingsymbol, qty, el.last_price, "SELL")
+				}
+			})
+			
+		}
 		
 	} catch(e) {
 
