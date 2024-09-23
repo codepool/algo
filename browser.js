@@ -1,10 +1,11 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
 const totp = require("totp-generator");
 const Tesseract = require('tesseract.js');
 const {getOptionPrices} = require('./websocket.js')
 const axios = require('axios');
 const { spawn } = require('child_process');
 const Jimp = require('jimp');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
 //const global = require("./connect")
 
@@ -42,6 +43,7 @@ const host = prodHost;
 async function run() {
  
   //run browser in debug mode if not running
+  puppeteer.use(StealthPlugin());
   const running = await isBrowserRunning(BROWSER_URL);
   if (!running) {
     console.log("Browser not running. Launching Browser")
@@ -50,10 +52,21 @@ async function run() {
  
   const browser = await puppeteer.connect({
     browserURL: 'http://localhost:9222', // URL of the remote debugging interface
-    headless: false
+    headless: false,
+    args: ['--disable-web-security', '--disable-features=IsolateOrigins,site-per-process']
   });
  
   const page = await browser.newPage(); // Open a new page
+  await page.setRequestInterception(true);
+
+  page.on('request', request => {
+  const headers = request.headers();
+  if (headers['Content-Security-Policy']) {
+    delete headers['Content-Security-Policy'];  // Remove CSP header
+  }
+  request.continue({ headers });
+});
+
   let logoutScreen = false;
   page.on('framenavigated', async frame => {
     
@@ -130,6 +143,7 @@ async function run() {
   });
   await page.exposeFunction('placeOrder', async (lots) => {
 
+    console.log(">> place order lots = " + lots)
     const formData = new URLSearchParams();
     formData.append('strike', strike);
     formData.append('instrument', indexMap[indexInst]);
@@ -144,6 +158,7 @@ async function run() {
   
   await page.exposeFunction('exitOrder', async (lots) => {
   
+    console.log(">> exit order lots = " + lots)
     const formData = new URLSearchParams();
     formData.append('strike', strike);
     formData.append('instrument', indexMap[indexInst]);
@@ -322,7 +337,7 @@ async function run() {
             console.log('Mouse clicked while exit key was pressed!');
           }
           clickTimeout = null;
-        }, 350); // Adjust timeout as needed
+        }, 200); // Adjust timeout as needed
 
       });
     }
