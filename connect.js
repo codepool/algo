@@ -2450,6 +2450,7 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 	let payload;
 	
 	if(isExpiry(tradingsymbol) && !withoutHedgesFirst) {
+		console.log("Expiry instrument, so buying hedges first")
 		//place hedge orders at market price first and place sell limit order (buy only remaining hedges if needed)
 		
 		buyHedgesEqualToSell(tradingsymbol, hedgeTradingsymbol, totalQty)
@@ -2519,7 +2520,7 @@ async function placeOrder(withoutHedgesFirst, tradingsymbol, hedgeTradingsymbol,
 }
 
 
-async function buyHedgesEqualToSell(tradingsymbol, totalQty) {
+async function buyHedgesEqualToSell(tradingsymbol, hedgeTradingsymbol, totalQty) {
 
 	let cepe = tradingsymbol.substring(tradingsymbol.length - 2);
 	let positions = await kc.getPositions();
