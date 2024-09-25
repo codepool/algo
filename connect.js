@@ -298,7 +298,7 @@ async function onTicks(ticks) {
 		if(spikeLogicActive) {
 			ticks.forEach(async t => {
 				let expiryTradingInst = getTodayExpiryInst(t.instrument_token);
-				if(expiryTradingInst && t.last_price <= 30) { //if spike is <=30 points, then only follow this logic otherwise pnl logic
+				if(expiryTradingInst && sellPos.includes(t.instrument_token) && t.last_price <= 30) { //if spike is <=30 points, then only follow this logic otherwise pnl logic
 					let spike = checkSpike(expiryTradingInst.tradingsymbol, t.last_price)
 					if(spike) {
 						await handleSpike(pos, expiryTradingInst.tradingsymbol, t.last_price);
@@ -365,7 +365,7 @@ function checkSpike(tradingsymbol, tickPrice) {
         }
     }
 	console.log("Spike not found. Current tick value for " + tradingsymbol + " = " + tickPrice)
-	console.log(ticks.join(','))
+	console.log(ticks.map(item => item.value).join(','))
     ticks.push({ timestamp: currentTime, value: tickPrice });
 
     return false;
