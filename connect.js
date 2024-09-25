@@ -268,28 +268,32 @@ async function onTicks(ticks) {
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
 		//checkAndActivateKillSwitch(pos); //disabled
-		let sellPos = []
+		let allPos = []
+		let shortPos = [];
 		let haveShortPos = false;
 		pos["net"].forEach(p => { 
 	
 			if(p.quantity != 0 && getUnderlying(p.tradingsymbol)) {
-				sellPos.push(p.instrument_token)
+				allPos.push(p.instrument_token)
 				//also push the underlying instrument for level exit logic
-				sellPos.push(map[getUnderlying(p.tradingsymbol)])
+				allPos.push(map[getUnderlying(p.tradingsymbol)])
 			}
-			if(p.quantity < 0 && getUnderlying(p.tradingsymbol)) haveShortPos = true;
+			if(p.quantity < 0 && getUnderlying(p.tradingsymbol)) {
+				haveShortPos = true;
+				shortPos.push(p.instrument_token)
+			}
 	
 		})
 
 
-		if(sellPos.length == 0) {
-			sellPos = [map["BANKNIFTY"]] //default subscribe bank nifty
+		if(allPos.length == 0) {
+			allPos = [map["BANKNIFTY"]] //default subscribe bank nifty
 		}
 		
 		
 		ticker.unsubscribe(subscribeItems)
-		ticker.subscribe(sellPos);
-		subscribeItems = sellPos;
+		ticker.subscribe(allPos);
+		subscribeItems = allPos;
 		if(!haveShortPos) {
 			//console.log("No open short positions.")
 			return;
@@ -298,7 +302,7 @@ async function onTicks(ticks) {
 		if(spikeLogicActive) {
 			ticks.forEach(async t => {
 				let expiryTradingInst = getTodayExpiryInst(t.instrument_token);
-				if(expiryTradingInst && sellPos.includes(t.instrument_token) && t.last_price <= 30) { //if spike is <=30 points, then only follow this logic otherwise pnl logic
+				if(expiryTradingInst && shortPos.includes(t.instrument_token) && t.last_price <= 30) { //if spike is <=30 points, then only follow this logic otherwise pnl logic
 					let spike = checkSpike(expiryTradingInst.tradingsymbol, t.last_price)
 					if(spike) {
 						await handleSpike(pos, expiryTradingInst.tradingsymbol, t.last_price);
