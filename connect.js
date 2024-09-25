@@ -114,7 +114,8 @@ let peakProfit = 0;
 let pnlLogic = false;
 let exitLevelCE = {}, exitLevelPE = {};
 let slOrders = [];
-let posExitInprogress;
+let posExitInprogress = false;
+let spikeLogicActive = true;
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -257,9 +258,11 @@ let kkk = 0;
 let prevSubscribeItems = [];
 let count = 0;
 
+
 async function onTicks(ticks) {
 	console.log("On Ticks")
 	try {
+		//console.log(ticks)
 		currentTicks = ticks;
 		let pos= await kc.getPositions();
 		//checkAndActivateKillSwitch(pos); //disabled
@@ -289,6 +292,21 @@ async function onTicks(ticks) {
 			//console.log("No open short positions.")
 			return;
 		}
+
+		if(spikeLogicActive) {
+			ticks.forEach(async t => {
+				let expiryTradingInst = getTodayExpiryInst(t.instrument_token);
+				if(expiryTradingInst && t.last_price <= 30) { //if spike is <=30 points, then only follow this logic otherwise pnl logic
+					let spike = checkSpike(expiryTradingInst.tradingsymbol, t.last_price)
+					if(spike) {
+						await handleSpike(pos, expiryTradingInst.tradingsymbol, t.last_price);
+						return;
+					}
+				}
+				
+			})
+		}
+		
 		
 		
 		//console.log("Received Tick Length " + ticks.length)
@@ -325,7 +343,51 @@ async function onTicks(ticks) {
 	
 }
 
+let tickWindow = {};
+function checkSpike(tradingsymbol, tickPrice) {
+	let ticks = tickWindow[tradingsymbol];
+	if(!ticks) tickWindow[tradingsymbol] = [];
+	ticks = tickWindow[tradingsymbol];
+	const currentTime = Date.now();
 
+    // Clean up old ticks (older than 1 minute)
+    while (ticks.length > 0 && currentTime - ticks[0].timestamp > 30000) {
+        ticks.shift(); // Remove the oldest tick if it's outside the 30 sec window
+    }
+
+    // Check if the current tick value > 2.5 times any previous tick value
+    for (const previousTick of ticks) {
+		console.log("current tick " + tickPrice + " compared with " + previousTick.value)
+        if (tickPrice >= previousTick.value * 2.5) {
+			console.log(" >>>>   spike detected value " + tickPrice + " previous tick " + previousTick.value)
+            return true;
+        }
+    }
+
+    ticks.push({ timestamp: currentTime, value: tickPrice });
+
+    return false;
+}
+
+async function handleSpike(pos, expiryTradingSymbol, tickPrice) {
+
+	console.log(" >>>> handling spike " + expiryTradingSymbol)
+	
+	pos["net"].forEach(async p => { 
+		
+		if(p.quantity < 0 &&  p.tradingsymbol == expiryTradingSymbol) {
+			tickWindow[p.tradingsymbol] = [];
+			posExitInprogress = true; //so that pnl logic does not trigger
+			await exitAllQtyAtMarketPrice(p.tradingsymbol, -1 * p.quantity * 2, tickPrice, "BUY") //exit all and buy same quantity
+			await placeIcebergLimitOrder(-1 * p.quantity, p.tradingsymbol, "SELL", parseInt(tickPrice * 2.4))
+		}
+
+	})
+	
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	
+	
+}
 
 async function fn1(finalKc) {
 	try {
@@ -1123,8 +1185,8 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, transactio
 		console.log(e)
 		
 		if(e.message && e.message.includes("range")) {
-			if(!price) price = 30;
-			console.log("Found range error. Now exiting at limit price " + (price * 3))
+			if(!price) price = 10;
+			console.log("Found range error. Now exiting at limit price " + (price + 10))
 			try {
 				await finalKc.placeOrder("regular", {
 					"exchange": exchange,
@@ -1133,7 +1195,7 @@ async function exitAtMarketPrice( tradingsymbol, qty, price, finalKc, transactio
 					"quantity": qty,
 					"product": "NRML",
 					"order_type": "LIMIT",
-					"price": price * 3,
+					"price": price + 10,
 					"validity": "DAY",
 		
 				})
@@ -1159,10 +1221,10 @@ async function exitAllQtyAtMarketPrice( tradingsymbol, qty, price, transaction_t
 		if(j > 13) {
 			finalKc = kc2
 		}
-		exitAtMarketPrice(tradingsymbol, freezeLimit, price, finalKc, transaction_type) 
+		await exitAtMarketPrice(tradingsymbol, freezeLimit, price, finalKc, transaction_type) 
 	}
 	if(remQty > 0) {
-		exitAtMarketPrice(tradingsymbol, remQty, price, kc, transaction_type)
+		await exitAtMarketPrice(tradingsymbol, remQty, price, kc, transaction_type)
 	}
 
 }
@@ -1743,6 +1805,85 @@ async function addSL(triggerPrice, tradingsymbol) {
 	}
 }
 
+async function  placeIcebergLimitOrder(totalQty, tradingsymbol, transaction_type, price) {
+	try {
+		console.log("placeIcebergLimitOrder qty " + totalQty + " " + tradingsymbol + " price " + price )
+		let freezeLimit =  getFreezeLimit(getStrike(tradingsymbol)["strike"], tradingsymbol);
+		let numIceberg = parseInt(totalQty / (10 * freezeLimit)); //only max 10 legs are allowed per iceberg order
+		let remIceberg = totalQty % (10 * freezeLimit); //remaining 
+		let exchange = "NFO";
+			if(tradingsymbol.startsWith("SENSEX") || tradingsymbol.startsWith("BANKEX")) {
+				exchange = "BFO";
+			}
+	
+		for(let i = 1; i <= numIceberg; i++) {
+			payload = {
+				"exchange": exchange,
+				"tradingsymbol": tradingsymbol,
+				"transaction_type": transaction_type,
+				"quantity": 10 * freezeLimit,
+				"product": "NRML",
+				"order_type": "LIMIT",
+				"validity": "DAY",
+				"price": price,
+				"iceberg_legs": 10,
+				"iceberg_quantity": freezeLimit
+	
+			}
+			await kc.placeOrder("iceberg", payload)
+		}
+	
+		let normalOrderQty = 0;
+		let iceberg_quantity;
+		if(remIceberg > 0) {
+			let iceberg_legs;
+			if(remIceberg > freezeLimit) {
+				iceberg_legs = parseInt(remIceberg /freezeLimit)
+				if(iceberg_legs < 2) {
+					iceberg_legs = 2; 
+					iceberg_quantity = freezeLimit/2;
+				} else {
+					iceberg_quantity = freezeLimit;
+				}
+				payload = {
+					"exchange": exchange,
+					"tradingsymbol": tradingsymbol,
+					"transaction_type": transaction_type,
+					"quantity":  freezeLimit * parseInt(remIceberg /freezeLimit),
+					"product": "NRML",
+					"order_type": "LIMIT",
+					"validity": "DAY",
+					"price": price,
+					"iceberg_legs": iceberg_legs,
+					"iceberg_quantity": iceberg_quantity
+		
+				}
+				await kc.placeOrder("iceberg", payload)
+
+			} 
+			normalOrderQty = remIceberg % freezeLimit;
+			if(normalOrderQty > 0) {
+				payload = {
+					"exchange": exchange,
+					"tradingsymbol": tradingsymbol,
+					"transaction_type": transaction_type,
+					"quantity": normalOrderQty,
+					"product": "NRML",
+					"order_type": "LIMIT",
+					"validity": "DAY",
+					"price": price
+				}
+				await kc.placeOrder("regular", payload)
+	
+			}
+		}
+	} catch (e) {
+		console.log("Error in placeIcebergLimitOrder ")
+		console.log(e)
+	}
+	
+}
+
 async function modifySL(tradingsymbol, triggerPrice) {
 	try {
 		triggerPrice = Number(triggerPrice)
@@ -2147,45 +2288,26 @@ function isExpiry(tradingsymbol) {
 
 }
 
-function getTodayExpiryInst() {
-	let list = instList.filter(i => {
+function getTodayExpiryInst(instrument_token) {
 	
-		if(i.name != "NIFTY" && i.name != "BANKNIFTY" && i.name != "MIDCPNIFTY" && i.name != "FINNIFTY") return;
-		
-		if(moment(i.expiry).format("DD-MM-yyyy") == moment().format("DD-MM-yyyy") 
-		/*&& i.tradingsymbol.startsWith("NIFTY")*/) { //if one day has two expiry just add this check eg NIFTY, BANKNIFTY, FINNIFTY, SENSEX
-	
-			if(!firstInst) {
-				firstInst = i;
-			}
-			if(!secondInst && i.name != firstInst.name) {
-				secondInst = i;
-			}
-			return i;
+	let inst = instList.filter(i => {
 			
-		}
-	});
-
-	
-	if(list.length > 0 && list[0]["instrument_token"]) {
-		return list;
-	}
-	let listBFO = instListBFO.filter(i => {
-	
-		if(i.name != 'SENSEX' && i.name != 'BANKEX') return;
-		if(moment(i.expiry).format("DD-MM-yyyy") == moment().format("DD-MM-yyyy")) {
-			if(!firstInst) {
-				firstInst = i;
-			}
+		if(i.instrument_token == instrument_token) {
 			return i;
 		}
-	});
+	})[0]
 
-	if(listBFO.length > 0 && listBFO[0]["instrument_token"]) {
-		return listBFO;
-	}
-	console.log("No expiry found today")
+	let instBFO = instListBFO.filter(i => {
+			
+		if(i.instrument_token == instrument_token) {
+			return i;
+		}
+	})[0]
 
+	if(inst && moment(inst.expiry).date() == moment().date()) return inst
+	else if(instBFO && moment(instBFO.expiry).date() == moment().date()) return instBFO
+
+	return "";
 	
 }
 
