@@ -116,6 +116,8 @@ let exitLevelCE = {}, exitLevelPE = {};
 let slOrders = [];
 let posExitInprogress = false;
 let spikeLogicActive = true;
+let spikeMultiplier = 2.5;
+let spikeTargetMultipler = 2.4
 
 function initializeTicker() {
 	console.log("Initializing Ticker")
@@ -357,13 +359,13 @@ function checkSpike(tradingsymbol, tickPrice) {
 
     // Check if the current tick value > 2.5 times any previous tick value
     for (const previousTick of ticks) {
-		console.log("current tick " + tickPrice + " compared with " + previousTick.value)
-        if (tickPrice >= previousTick.value * 2.5) {
+        if (tickPrice >= previousTick.value * spikeMultiplier) {
 			console.log(" >>>>   spike detected value " + tickPrice + " previous tick " + previousTick.value)
             return true;
         }
     }
-
+	console.log("Spike not found. Current tick value for " + tradingsymbol + " = " + tickPrice)
+	console.log(ticks.join(','))
     ticks.push({ timestamp: currentTime, value: tickPrice });
 
     return false;
@@ -379,7 +381,7 @@ async function handleSpike(pos, expiryTradingSymbol, tickPrice) {
 			tickWindow[p.tradingsymbol] = [];
 			posExitInprogress = true; //so that pnl logic does not trigger
 			await exitAllQtyAtMarketPrice(p.tradingsymbol, -1 * p.quantity * 2, tickPrice, "BUY") //exit all and buy same quantity
-			await placeIcebergLimitOrder(-1 * p.quantity, p.tradingsymbol, "SELL", parseInt(tickPrice * 2.4))
+			await placeIcebergLimitOrder(-1 * p.quantity, p.tradingsymbol, "SELL", parseInt(tickPrice * spikeTargetMultipler))
 		}
 
 	})

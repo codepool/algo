@@ -38,7 +38,7 @@ const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrom
 const USER_DATA_DIR = '/tmp/chrome_temp';
 const devHost = "http://localhost:3000";
 const prodHost = "https://zerodha-algo.onrender.com";
-const host = devHost;
+const host = prodHost;
 
 async function run() {
  
