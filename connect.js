@@ -115,7 +115,7 @@ let pnlLogic = false;
 let exitLevelCE = {}, exitLevelPE = {};
 let slOrders = [];
 let posExitInprogress = false;
-let spikeLogicActive = true;
+let spikeLogicActive = false;
 let spikeMultiplier = 2.5;
 let spikeTargetMultipler = 2.4
 
