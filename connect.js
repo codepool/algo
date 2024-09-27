@@ -94,8 +94,8 @@ let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
 
-let maxPlatformLoss = 600000;  //hard limit, can't do trading after this limit
-let softMaxPlatformLoss = 450000; //soft limit
+let maxPlatformLoss = 450000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 280000; //soft limit
 let softMaxPlatformLossHit = false;
 let maxPlatformLossHit = false;
 let killSwitchActivated = false;
@@ -369,8 +369,8 @@ function checkSpike(tradingsymbol, tickPrice) {
         }
     }
 	console.log("Spike not found. Current tick value for " + tradingsymbol + " = " + tickPrice)
-	console.log(ticks.map(item => item.value).join(','))
     ticks.push({ timestamp: currentTime, value: tickPrice });
+	console.log(ticks.map(item => item.value).join(','))
 
     return false;
 }
@@ -384,8 +384,9 @@ async function handleSpike(pos, expiryTradingSymbol, tickPrice) {
 		if(p.quantity < 0 &&  p.tradingsymbol == expiryTradingSymbol) {
 			tickWindow[p.tradingsymbol] = [];
 			posExitInprogress = true; //so that pnl logic does not trigger
-			await exitAllQtyAtMarketPrice(p.tradingsymbol, -1 * p.quantity * 2, tickPrice, "BUY") //exit all and buy same quantity
-			await placeIcebergLimitOrder(-1 * p.quantity, p.tradingsymbol, "SELL", parseInt(tickPrice * spikeTargetMultipler))
+			//await exitAllQtyAtMarketPrice(p.tradingsymbol, -1 * p.quantity * 2, tickPrice, "BUY") //exit all and buy same quantity
+			await exitAllQtyAtMarketPrice(p.tradingsymbol, -1 * p.quantity, tickPrice, "BUY") //exit all qty
+			//await placeIcebergLimitOrder(-1 * p.quantity, p.tradingsymbol, "SELL", parseInt(tickPrice * spikeTargetMultipler))
 		}
 
 	})
