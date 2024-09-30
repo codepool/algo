@@ -2005,9 +2005,9 @@ function getHedgesStrikeDiff(tradingsymbol) {
 	} else if(tradingsymbol.startsWith("FINNIFTY")) {
 		return 200;
 	} else if(tradingsymbol.startsWith("SENSEX")) {
-		return 400;
+		return 500;
 	} else if(tradingsymbol.startsWith("BANKEX")) {
-		return 400;
+		return 500;
 	}
 }
 
