@@ -115,7 +115,7 @@ let pnlLogic = false;
 let exitLevelCE = {}, exitLevelPE = {};
 let slOrders = [];
 let posExitInprogress = false;
-let spikeLogicActive = false;
+let spikeLogicActive = true;
 let spikeMultiplier = 2.5;
 let spikeTargetMultipler = 2.4
 
@@ -302,9 +302,9 @@ async function onTicks(ticks) {
 		if(spikeLogicActive) {
 			ticks.forEach(async t => {
 				let expiryTradingInst = getTodayExpiryInst(t.instrument_token);
-				if(expiryTradingInst && shortPos.includes(t.instrument_token) && t.last_price <= 30) { //if spike is <=30 points, then only follow this logic otherwise pnl logic
+				if(expiryTradingInst && shortPos.includes(t.instrument_token)) { 
 					let spike = checkSpike(expiryTradingInst.tradingsymbol, t.last_price)
-					if(spike) {
+					if(spike && t.last_price >= 10 && t.last_price <= 35) { //apply spike logic only when the spike value is between this range. Lower values tolerable, higher value just let it go to max loss 
 						await handleSpike(pos, expiryTradingInst.tradingsymbol, t.last_price);
 						return;
 					}
