@@ -97,6 +97,8 @@ kc.setSessionExpiryHook(sessionHook);
 let maxPlatformLoss = 550000;  //hard limit, can't do trading after this limit
 let softMaxPlatformLoss = 280000; //soft limit
 let softMaxPlatformLossHit = false;
+let softMaxPlatformLossLimit= false;
+let maxPlatformLossLimit= false;
 let maxPlatformLossHit = false;
 let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
@@ -838,14 +840,14 @@ async function pnlExitLogic(ticks, pos) {
 		if(maxPnl > maxPnlThreshold && pnl <=0 && !slTrailed) {
 			pnlExit = true;  // trail stoploss if alreasdy reached certail level of profit
 			slTrailed = true;
-		} else if(!softMaxPlatformLossHit) {
+		} else if(!softMaxPlatformLossHit && softMaxPlatformLossLimit) {
 			pnlExit = (pnl * -1) >= softMaxPlatformLoss;
 			
 			if(pnlExit) {
 				softMaxPlatformLossHit = true;
 			}
 			
-		} else {
+		} else if (maxPlatformLossLimit){
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
 			if(pnlExit) {
 				maxPlatformLossHit = true;
