@@ -94,11 +94,9 @@ let kc2 = new KiteConnect(options2);
 kc.setSessionExpiryHook(sessionHook);
 
 
-let maxPlatformLoss = 550000;  //hard limit, can't do trading after this limit
-let softMaxPlatformLoss = 280000; //soft limit
+let maxPlatformLoss = 460000;  //hard limit, can't do trading after this limit
+let softMaxPlatformLoss = 230000; //soft limit
 let softMaxPlatformLossHit = false;
-let softMaxPlatformLossLimit= false;
-let maxPlatformLossLimit= false;
 let maxPlatformLossHit = false;
 let killSwitchActivated = false;
 let curPlatformLoss = maxPlatformLoss;
@@ -830,7 +828,7 @@ async function pnlExitLogic(ticks, pos) {
 	}
 	console.log("Max pnl = " + maxPnl)
 	if(pnl > maxPnlThreshold) slTrailed = false;
-	if(softMaxPlatformLossHit && pnl >= -1 * (softMaxPlatformLoss/4)) { //if loss is reovered then reset soft loss flag
+	if(softMaxPlatformLossHit && pnl >= -1 * (softMaxPlatformLoss/3)) { //if major of the loss is reovered then reset soft loss flag
 		softMaxPlatformLossHit = false;
 	}
 
@@ -840,14 +838,14 @@ async function pnlExitLogic(ticks, pos) {
 		if(maxPnl > maxPnlThreshold && pnl <=0 && !slTrailed) {
 			pnlExit = true;  // trail stoploss if alreasdy reached certail level of profit
 			slTrailed = true;
-		} else if(!softMaxPlatformLossHit && softMaxPlatformLossLimit) {
+		} else if(!softMaxPlatformLossHit) {
 			pnlExit = (pnl * -1) >= softMaxPlatformLoss;
 			
 			if(pnlExit) {
 				softMaxPlatformLossHit = true;
 			}
 			
-		} else if (maxPlatformLossLimit){
+		} else {
 			pnlExit = (pnl * -1) >= maxPlatformLoss;
 			if(pnlExit) {
 				maxPlatformLossHit = true;
